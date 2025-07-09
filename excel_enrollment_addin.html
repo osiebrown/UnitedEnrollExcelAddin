@@ -614,22 +614,47 @@
                     return newSheet;
                 }
                 
-                // Use original headers
-                const headers = originalHeaders;
+                // Use original headers and ensure they're clean
+                const headers = originalHeaders.filter(h => h !== null && h !== undefined && h !== '');
                 const sheetData = [headers];
                 
-                // Add data rows
+                // Add data rows - ensure all rows have same number of columns
                 recentChanges.forEach(row => {
-                    const rowData = headers.map(header => row[header] || '');
+                    const rowData = headers.map(header => {
+                        const value = row[header];
+                        return (value !== undefined && value !== null) ? value : '';
+                    });
                     sheetData.push(rowData);
                 });
                 
+                // Validate data dimensions
+                console.log(`Creating sheet with ${sheetData.length} rows and ${headers.length} columns`);
+                
+                // Calculate proper range dimensions
+                const numRows = sheetData.length;
+                const numCols = headers.length;
+                
+                if (numCols === 0) {
+                    throw new Error('No valid headers found');
+                }
+                
+                // Handle edge case where we might exceed column Z
+                let endColumn;
+                if (numCols <= 26) {
+                    endColumn = String.fromCharCode(64 + numCols); // A=65, so 64+1=A
+                } else {
+                    // For columns beyond Z, use AA, AB, etc.
+                    const firstLetter = String.fromCharCode(64 + Math.floor((numCols - 1) / 26));
+                    const secondLetter = String.fromCharCode(65 + ((numCols - 1) % 26));
+                    endColumn = firstLetter + secondLetter;
+                }
+                
                 // Write data to sheet
-                const range = newSheet.getRange(`A1:${String.fromCharCode(65 + headers.length - 1)}${sheetData.length}`);
+                const range = newSheet.getRange(`A1:${endColumn}${numRows}`);
                 range.values = sheetData;
                 
                 // Format headers
-                const headerRange = newSheet.getRange(`A1:${String.fromCharCode(65 + headers.length - 1)}1`);
+                const headerRange = newSheet.getRange(`A1:${endColumn}1`);
                 headerRange.format.font.bold = true;
                 headerRange.format.fill.color = "#0078d4";
                 headerRange.format.font.color = "white";
@@ -641,6 +666,7 @@
                 return newSheet;
             } catch (error) {
                 console.error('Error creating policy changes sheet:', error);
+                console.error('Sheet data structure:', sheetData);
                 throw error;
             }
         }
