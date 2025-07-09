@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enrollment Data Processor</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #0078d4;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 20px;
+        }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: bold;
+            font-size: 28px;
+            letter-spacing: 2px;
+        }
+        
+        .logo-united {
+            color: #0078d4;
+        }
+        
+        .logo-enroll {
+            color: #106ebe;
+        }
+        
+        .button {
+            background-color: #0078d4;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+            transition: background-color 0.3s;
+        }
+        
+        .button:hover {
+            background-color: #106ebe;
+        }
+        
+        .button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .field-info {
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .field-info h3 {
+            margin: 0 0 5px 0;
+            color: #495057;
+        }
+        
+        .field-list {
+            margin: 5px 0;
+            padding-left: 15px;
+        }
+        
+        .progress {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background-color: #0078d4;
+            width: 0%;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <span class="logo-united">UNITED</span>
+            <span class="logo-enroll">ENROLL</span>
+        </div>
+        <h1>Enrollment Data Processor</h1>
+        
+        <button class="button" id="processBtn" onclick="processEnrollmentData()">
+            Process Enrollment Data
+        </button>
+        
+        <button class="button" id="analyzeBtn" onclick="analyzeCurrentSheet()">
+            Analyze Current Sheet
+        </button>
+        
+        <div class="progress" id="progressContainer" style="display: none;">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        
+        <div id="fieldInfo" class="field-info" style="display: none;">
+            <h3>Detected Fields:</h3>
+            <div id="ssnFields" class="field-list"></div>
+            <div id="dateFields" class="field-list"></div>
+        </div>
+        
+        <div id="status" class="status" style="display: none;"></div>
+    </div>
+
+    <script>
+        Office.onReady(() => {
+            console.log('Add-in initialized');
+        });
+
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+        }
+
+        function updateProgress(percentage) {
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            
+            if (percentage > 0) {
+                progressContainer.style.display = 'block';
+                progressBar.style.width = percentage + '%';
+            } else {
+                progressContainer.style.display = 'none';
+            }
+        }
+
+        function showFieldInfo(ssnFields, dateFields) {
+            const fieldInfoDiv = document.getElementById('fieldInfo');
+            const ssnFieldsDiv = document.getElementById('ssnFields');
+            const dateFieldsDiv = document.getElementById('dateFields');
+            
+            ssnFieldsDiv.innerHTML = '<strong>SSN Fields:</strong> ' + ssnFields.join(', ');
+            dateFieldsDiv.innerHTML = '<strong>Date Fields:</strong> ' + dateFields.join(', ');
+            
+            fieldInfoDiv.style.display = 'block';
+        }
+
+        async function analyzeCurrentSheet() {
+            try {
+                showStatus('Analyzing current sheet...', 'info');
+                updateProgress(25);
+                
+                await Excel.run(async (context) => {
+                    const worksheet = context.workbook.worksheets.getActiveWorksheet();
+                    const usedRange = worksheet.getUsedRange();
+                    
+                    if (!usedRange) {
+                        showStatus('No data found in the current sheet', 'error');
+                        return;
+                    }
+                    
+                    usedRange.load("values");
+                    await context.sync();
+                    
+                    const data = usedRange.values;
+                    if (data.length === 0) {
+                        showStatus('No data found in the current sheet', 'error');
+                        return;
+                    }
+                    
+                    updateProgress(50);
+                    
+                    // Analyze headers
+                    const headers = data[0];
+                    const { ssnFields, dateFields } = detectFields(headers);
+                    
+                    updateProgress(75);
+                    
+                    showFieldInfo(ssnFields, dateFields);
+                    showStatus(`Analysis complete. Found ${ssnFields.length} SSN fields and ${dateFields.length} date fields`, 'success');
+                    
+                    updateProgress(100);
+                    setTimeout(() => updateProgress(0), 1000);
+                });
+            } catch (error) {
+                showStatus('Error analyzing sheet: ' + error.message, 'error');
+                updateProgress(0);
+            }
+        }
+
+        function detectFields(headers) {
+            const ssnFields = [];
+            const dateFields = [];
+            
+            headers.forEach((header, index) => {
+                if (typeof header === 'string') {
+                    const headerLower = header.toLowerCase();
+                    
+                    // Detect SSN fields
+                    if (headerLower.includes('ssn') || 
+                        headerLower.includes('social security') ||
+                        headerLower.includes('employee ssn')) {
+                        ssnFields.push(header);
+                    }
+                    
+                    // Detect date fields
+                    if (headerLower.includes('date') || 
+                        headerLower.includes('dob') ||
+                        headerLower.includes('enrolled') ||
+                        headerLower.includes('hire') ||
+                        headerLower.includes('start')) {
+                        dateFields.push(header);
+                    }
+                }
+            });
+            
+            return { ssnFields, dateFields };
+        }
+
+        function isDateInPastThreeMonths(dateValue) {
+            if (!dateValue) return false;
+            
+            let date;
+            if (typeof dateValue === 'string') {
+                date = new Date(dateValue);
+            } else if (typeof dateValue === 'number') {
+                // Excel serial date number
+                date = new Date((dateValue - 25569) * 86400 * 1000);
+            } else if (dateValue instanceof Date) {
+                date = dateValue;
+            } else {
+                return false;
+            }
+            
+            if (isNaN(date.getTime())) return false;
+            
+            const today = new Date();
+            const threeMonthsAgo = new Date();
+            threeMonthsAgo.setMonth(today.getMonth() - 3);
+            
+            return date >= threeMonthsAgo && date <= today;
+        }
+
+        function truncateFieldName(fieldName, maxLength = 20) {
+            // Do not truncate - return field name as-is
+            return fieldName;
+        }
+
+        function formatSSN(ssn) {
+            if (!ssn) return '';
+            
+            // Handle different SSN formats
+            let ssnStr = ssn.toString().replace(/\D/g, '');
+            
+            if (ssnStr.length === 9) {
+                return ssnStr.substring(0, 3) + '-' + ssnStr.substring(3, 5) + '-' + ssnStr.substring(5);
+            }
+            
+            return ssn.toString();
+        }
+
+        async function processEnrollmentData() {
+            try {
+                showStatus('Processing enrollment data...', 'info');
+                updateProgress(10);
+                
+                const processBtn = document.getElementById('processBtn');
+                const analyzeBtn = document.getElementById('analyzeBtn');
+                processBtn.disabled = true;
+                analyzeBtn.disabled = true;
+                
+                await Excel.run(async (context) => {
+                    const worksheet = context.workbook.worksheets.getActiveWorksheet();
+                    const usedRange = worksheet.getUsedRange();
+                    
+                    if (!usedRange) {
+                        showStatus('No data found in the current sheet', 'error');
+                        return;
+                    }
+                    
+                    usedRange.load("values");
+                    await context.sync();
+                    
+                    updateProgress(25);
+                    
+                    const data = usedRange.values;
+                    if (data.length === 0) {
+                        showStatus('No data found in the current sheet', 'error');
+                        return;
+                    }
+                    
+                    const headers = data[0];
+                    const { ssnFields, dateFields } = detectFields(headers);
+                    
+                    showFieldInfo(ssnFields, dateFields);
+                    
+                    if (ssnFields.length === 0) {
+                        showStatus('No SSN fields detected. Please ensure your data contains SSN columns.', 'error');
+                        return;
+                    }
+                    
+                    updateProgress(35);
+                    
+                    // Process data
+                    const processedData = processDataBySSN(data, headers, ssnFields, dateFields);
+                    
+                    updateProgress(50);
+                    
+                    // Create new worksheet for policy changes
+                    const policyChangesSheet = await createPolicyChangesSheet(context, processedData.recentChanges, headers);
+                    
+                    updateProgress(75);
+                    
+                    // Create summary sheet
+                    await createSummarySheet(context, processedData.summary, ssnFields, dateFields);
+                    
+                    updateProgress(90);
+                    
+                    showStatus(`Processing complete! Found ${processedData.recentChanges.length} recent policy changes across ${processedData.summary.totalSSNs} unique SSNs.`, 'success');
+                    
+                    updateProgress(100);
+                    setTimeout(() => updateProgress(0), 1000);
+                });
+            } catch (error) {
+                showStatus('Error processing data: ' + error.message, 'error');
+                updateProgress(0);
+            } finally {
+                const processBtn = document.getElementById('processBtn');
+                const analyzeBtn = document.getElementById('analyzeBtn');
+                processBtn.disabled = false;
+                analyzeBtn.disabled = false;
+            }
+        }
+
+        function processDataBySSN(data, headers, ssnFields, dateFields) {
+            const ssnGroups = {};
+            const recentChanges = [];
+            const summary = {
+                totalSSNs: 0,
+                recentChanges: 0,
+                totalRecords: data.length - 1
+            };
+            
+            // Skip header row
+            for (let i = 1; i < data.length; i++) {
+                const row = data[i];
+                
+                // Find primary SSN (first SSN field)
+                let primarySSN = null;
+                for (const ssnField of ssnFields) {
+                    const ssnIndex = headers.indexOf(ssnField);
+                    if (ssnIndex !== -1 && row[ssnIndex]) {
+                        primarySSN = formatSSN(row[ssnIndex]);
+                        break;
+                    }
+                }
+                
+                if (!primarySSN) continue;
+                
+                // Initialize SSN group if needed
+                if (!ssnGroups[primarySSN]) {
+                    ssnGroups[primarySSN] = [];
+                }
+                
+                // Create processed row with original field names (no truncation)
+                const processedRow = {};
+                headers.forEach((header, index) => {
+                    processedRow[header] = row[index];
+                });
+                
+                ssnGroups[primarySSN].push(processedRow);
+                
+                // Check if this row has recent date changes
+                let hasRecentChange = false;
+                for (const dateField of dateFields) {
+                    const dateIndex = headers.indexOf(dateField);
+                    if (dateIndex !== -1 && row[dateIndex]) {
+                        if (isDateInPastThreeMonths(row[dateIndex])) {
+                            hasRecentChange = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (hasRecentChange) {
+                    recentChanges.push(processedRow);
+                }
+            }
+            
+            summary.totalSSNs = Object.keys(ssnGroups).length;
+            summary.recentChanges = recentChanges.length;
+            
+            return {
+                ssnGroups,
+                recentChanges,
+                summary
+            };
+        }
+
+        async function createPolicyChangesSheet(context, recentChanges, originalHeaders) {
+            try {
+                // Delete existing "Policy Changes to Note" sheet if it exists
+                const existingSheet = context.workbook.worksheets.getItemOrNullObject("Policy Changes to Note");
+                await context.sync();
+                
+                if (!existingSheet.isNullObject) {
+                    existingSheet.delete();
+                    await context.sync();
+                }
+                
+                // Create new sheet
+                const newSheet = context.workbook.worksheets.add("Policy Changes to Note");
+                
+                if (recentChanges.length === 0) {
+                    const noDataRange = newSheet.getRange("A1");
+                    noDataRange.values = [["No recent policy changes found"]];
+                    noDataRange.format.font.bold = true;
+                    await context.sync();
+                    return newSheet;
+                }
+                
+                // Use original headers (no truncation)
+                const headers = originalHeaders;
+                const sheetData = [headers];
+                
+                // Add data rows
+                recentChanges.forEach(row => {
+                    const rowData = headers.map(header => row[header] || '');
+                    sheetData.push(rowData);
+                });
+                
+                // Write data to sheet
+                const range = newSheet.getRange(`A1:${String.fromCharCode(65 + headers.length - 1)}${sheetData.length}`);
+                range.values = sheetData;
+                
+                // Format headers
+                const headerRange = newSheet.getRange(`A1:${String.fromCharCode(65 + headers.length - 1)}1`);
+                headerRange.format.font.bold = true;
+                headerRange.format.fill.color = "#0078d4";
+                headerRange.format.font.color = "white";
+                
+                // Auto-fit columns
+                newSheet.getUsedRange().format.autofitColumns();
+                
+                await context.sync();
+                return newSheet;
+            } catch (error) {
+                console.error('Error creating policy changes sheet:', error);
+                throw error;
+            }
+        }
+
+        async function createSummarySheet(context, summary, ssnFields, dateFields) {
+            try {
+                // Delete existing "Processing Summary" sheet if it exists
+                const existingSheet = context.workbook.worksheets.getItemOrNullObject("Processing Summary");
+                await context.sync();
+                
+                if (!existingSheet.isNullObject) {
+                    existingSheet.delete();
+                    await context.sync();
+                }
+                
+                // Create new sheet
+                const summarySheet = context.workbook.worksheets.add("Processing Summary");
+                
+                const summaryData = [
+                    ["Enrollment Data Processing Summary"],
+                    [""],
+                    ["Metric", "Value"],
+                    ["Total Records Processed", summary.totalRecords],
+                    ["Unique SSNs Found", summary.totalSSNs],
+                    ["Recent Policy Changes", summary.recentChanges],
+                    [""],
+                    ["Detected SSN Fields", ssnFields.join(", ")],
+                    ["Detected Date Fields", dateFields.join(", ")],
+                    [""],
+                    ["Processing Date", new Date().toLocaleDateString()],
+                    ["Processing Time", new Date().toLocaleTimeString()]
+                ];
+                
+                const range = summarySheet.getRange(`A1:B${summaryData.length}`);
+                range.values = summaryData;
+                
+                // Format title
+                const titleRange = summarySheet.getRange("A1:B1");
+                titleRange.merge();
+                titleRange.format.font.bold = true;
+                titleRange.format.font.size = 14;
+                titleRange.format.fill.color = "#0078d4";
+                titleRange.format.font.color = "white";
+                titleRange.format.horizontalAlignment = "Center";
+                
+                // Format headers
+                const headerRange = summarySheet.getRange("A3:B3");
+                headerRange.format.font.bold = true;
+                headerRange.format.fill.color = "#f2f2f2";
+                
+                // Auto-fit columns
+                summarySheet.getUsedRange().format.autofitColumns();
+                
+                await context.sync();
+                return summarySheet;
+            } catch (error) {
+                console.error('Error creating summary sheet:', error);
+                throw error;
+            }
+        }
+    </script>
+</body>
+</html>
