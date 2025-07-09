@@ -725,22 +725,33 @@
                 const summarySheet = context.workbook.worksheets.add("Processing Summary");
                 
                 const summaryData = [
-                    ["Enrollment Data Processing Summary"],
-                    [""],
+                    ["Enrollment Data Processing Summary", ""],
+                    ["", ""],
                     ["Metric", "Value"],
                     ["Total Records Processed", summary.totalRecords],
                     ["Unique SSNs Found", summary.totalSSNs],
                     ["Recent Policy Changes", summary.recentChanges],
-                    [""],
+                    ["", ""],
                     ["Selected SSN Fields", ssnFields.join(", ")],
                     ["Selected Date Fields", dateFields.join(", ")],
-                    [""],
+                    ["", ""],
                     ["Processing Date", new Date().toLocaleDateString()],
                     ["Processing Time", new Date().toLocaleTimeString()]
                 ];
                 
-                const range = summarySheet.getRange(`A1:B${summaryData.length}`);
-                range.values = summaryData;
+                // Debug logging
+                console.log('Summary data dimensions:');
+                console.log('Rows:', summaryData.length);
+                console.log('Columns:', summaryData[0].length);
+                console.log('All rows same length:', summaryData.every(row => row.length === summaryData[0].length));
+                
+                // Write data row by row to avoid range issues
+                for (let i = 0; i < summaryData.length; i++) {
+                    const rowRange = summarySheet.getRange(`A${i + 1}:B${i + 1}`);
+                    rowRange.values = [summaryData[i]];
+                }
+                
+                await context.sync();
                 
                 // Format title
                 const titleRange = summarySheet.getRange("A1:B1");
@@ -763,6 +774,7 @@
                 return summarySheet;
             } catch (error) {
                 console.error('Error creating summary sheet:', error);
+                console.error('Summary data structure:', summaryData);
                 throw error;
             }
         }
