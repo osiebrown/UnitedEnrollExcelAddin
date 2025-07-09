@@ -616,59 +616,98 @@
                 
                 // Use original headers and ensure they're clean
                 const headers = originalHeaders.filter(h => h !== null && h !== undefined && h !== '');
+                
+                // Debug logging
+                console.log('Original headers length:', originalHeaders.length);
+                console.log('Filtered headers length:', headers.length);
+                console.log('Headers:', headers);
+                console.log('Recent changes count:', recentChanges.length);
+                
                 const sheetData = [headers];
                 
                 // Add data rows - ensure all rows have same number of columns
-                recentChanges.forEach(row => {
+                recentChanges.forEach((row, index) => {
                     const rowData = headers.map(header => {
                         const value = row[header];
                         return (value !== undefined && value !== null) ? value : '';
                     });
+                    
+                    // Debug: Check row length
+                    if (index === 0) {
+                        console.log('First data row length:', rowData.length);
+                        console.log('Expected length (headers):', headers.length);
+                    }
+                    
                     sheetData.push(rowData);
                 });
                 
-                // Validate data dimensions
-                console.log(`Creating sheet with ${sheetData.length} rows and ${headers.length} columns`);
+                // Final validation
+                console.log('Final sheetData dimensions:');
+                console.log('Rows:', sheetData.length);
+                console.log('Columns (from first row):', sheetData[0].length);
+                console.log('All rows same length:', sheetData.every(row => row.length === sheetData[0].length));
                 
-                // Calculate proper range dimensions
                 const numRows = sheetData.length;
-                const numCols = headers.length;
+                const numCols = sheetData[0].length; // Use actual data length instead of headers.length
                 
                 if (numCols === 0) {
-                    throw new Error('No valid headers found');
+                    throw new Error('No valid columns found in data');
                 }
                 
-                // Handle edge case where we might exceed column Z
-                let endColumn;
-                if (numCols <= 26) {
-                    endColumn = String.fromCharCode(64 + numCols); // A=65, so 64+1=A
-                } else {
-                    // For columns beyond Z, use AA, AB, etc.
-                    const firstLetter = String.fromCharCode(64 + Math.floor((numCols - 1) / 26));
-                    const secondLetter = String.fromCharCode(65 + ((numCols - 1) % 26));
-                    endColumn = firstLetter + secondLetter;
+                // Simple column calculation - write one row at a time to avoid range issues
+                try {
+                    // Write header row first
+                    const headerRange = newSheet.getRange(`A1:${getExcelColumnName(numCols)}1`);
+                    console.log('Writing headers to range:', `A1:${getExcelColumnName(numCols)}1`);
+                    headerRange.values = [sheetData[0]];
+                    
+                    // Write data rows one at a time if there are any
+                    if (sheetData.length > 1) {
+                        for (let i = 1; i < sheetData.length; i++) {
+                            const rowRange = newSheet.getRange(`A${i + 1}:${getExcelColumnName(numCols)}${i + 1}`);
+                            rowRange.values = [sheetData[i]];
+                        }
+                    }
+                    
+                    await context.sync();
+                    
+                    // Format headers
+                    const headerFormatRange = newSheet.getRange(`A1:${getExcelColumnName(numCols)}1`);
+                    headerFormatRange.format.font.bold = true;
+                    headerFormatRange.format.fill.color = "#0078d4";
+                    headerFormatRange.format.font.color = "white";
+                    
+                    // Auto-fit columns
+                    newSheet.getUsedRange().format.autofitColumns();
+                    
+                    await context.sync();
+                    
+                } catch (rangeError) {
+                    console.error('Range error details:', rangeError);
+                    console.error('Attempted range:', `A1:${getExcelColumnName(numCols)}${numRows}`);
+                    throw rangeError;
                 }
                 
-                // Write data to sheet
-                const range = newSheet.getRange(`A1:${endColumn}${numRows}`);
-                range.values = sheetData;
-                
-                // Format headers
-                const headerRange = newSheet.getRange(`A1:${endColumn}1`);
-                headerRange.format.font.bold = true;
-                headerRange.format.fill.color = "#0078d4";
-                headerRange.format.font.color = "white";
-                
-                // Auto-fit columns
-                newSheet.getUsedRange().format.autofitColumns();
-                
-                await context.sync();
                 return newSheet;
             } catch (error) {
                 console.error('Error creating policy changes sheet:', error);
-                console.error('Sheet data structure:', sheetData);
+                console.error('Error details:', {
+                    originalHeadersLength: originalHeaders?.length,
+                    recentChangesLength: recentChanges?.length,
+                    errorMessage: error.message
+                });
                 throw error;
             }
+        }
+
+        function getExcelColumnName(columnNumber) {
+            let columnName = '';
+            while (columnNumber > 0) {
+                const remainder = (columnNumber - 1) % 26;
+                columnName = String.fromCharCode(65 + remainder) + columnName;
+                columnNumber = Math.floor((columnNumber - 1) / 26);
+            }
+            return columnName;
         }
 
         async function createSummarySheet(context, summary, ssnFields, dateFields) {
