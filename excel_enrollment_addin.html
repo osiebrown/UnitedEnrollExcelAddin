@@ -22,13 +22,6 @@
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         
-        h1 {
-            color: #0078d4;
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 20px;
-        }
-        
         .logo {
             text-align: center;
             margin-bottom: 20px;
@@ -43,6 +36,13 @@
         
         .logo-enroll {
             color: #106ebe;
+        }
+        
+        h1 {
+            color: #0078d4;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 20px;
         }
         
         .button {
@@ -65,6 +65,22 @@
         .button:disabled {
             background-color: #ccc;
             cursor: not-allowed;
+        }
+        
+        .button.step1 {
+            background-color: #28a745;
+        }
+        
+        .button.step1:hover {
+            background-color: #218838;
+        }
+        
+        .button.step2 {
+            background-color: #0078d4;
+        }
+        
+        .button.step2:hover {
+            background-color: #106ebe;
         }
         
         .status {
@@ -93,22 +109,47 @@
             border: 1px solid #bee5eb;
         }
         
-        .field-info {
+        .field-selection {
             margin: 15px 0;
-            padding: 10px;
+            padding: 15px;
             background-color: #f8f9fa;
             border-radius: 4px;
-            font-size: 12px;
+            font-size: 14px;
+            display: none;
         }
         
-        .field-info h3 {
-            margin: 0 0 5px 0;
+        .field-group {
+            margin-bottom: 20px;
+        }
+        
+        .field-group h3 {
+            margin: 0 0 10px 0;
+            color: #495057;
+            font-size: 16px;
+        }
+        
+        .field-checkbox {
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+        }
+        
+        .field-checkbox input[type="checkbox"] {
+            margin-right: 8px;
+            transform: scale(1.2);
+        }
+        
+        .field-checkbox label {
+            cursor: pointer;
+            user-select: none;
             color: #495057;
         }
         
-        .field-list {
-            margin: 5px 0;
-            padding-left: 15px;
+        .field-checkbox.highlighted {
+            background-color: #fff3cd;
+            padding: 5px;
+            border-radius: 4px;
+            border-left: 4px solid #ffc107;
         }
         
         .progress {
@@ -126,6 +167,31 @@
             width: 0%;
             transition: width 0.3s;
         }
+        
+        .step-indicator {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #6c757d;
+        }
+        
+        .step {
+            display: inline-block;
+            padding: 5px 10px;
+            margin: 0 5px;
+            border-radius: 15px;
+            background-color: #e9ecef;
+        }
+        
+        .step.active {
+            background-color: #0078d4;
+            color: white;
+        }
+        
+        .step.completed {
+            background-color: #28a745;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -136,31 +202,71 @@
         </div>
         <h1>Enrollment Data Processor</h1>
         
-        <button class="button" id="processBtn" onclick="processEnrollmentData()">
-            Process Enrollment Data
+        <div class="step-indicator">
+            <span class="step" id="step1Indicator">1</span>
+            <span class="step" id="step2Indicator">2</span>
+        </div>
+        
+        <button class="button step1" id="analyzeBtn" onclick="analyzeCurrentSheet()">
+            Step 1: Analyze
         </button>
         
-        <button class="button" id="analyzeBtn" onclick="analyzeCurrentSheet()">
-            Analyze Current Sheet
+        <div id="fieldSelection" class="field-selection">
+            <div class="field-group">
+                <h3>SSN Fields Found:</h3>
+                <div id="ssnFieldCheckboxes"></div>
+            </div>
+            
+            <div class="field-group">
+                <h3>Date Fields Found:</h3>
+                <div id="dateFieldCheckboxes"></div>
+            </div>
+            
+            <div style="margin-top: 15px; padding: 10px; background-color: #e3f2fd; border-radius: 4px; font-size: 12px;">
+                <strong>Instructions:</strong> Check the boxes for fields you want to include in processing. Highlighted fields were automatically detected.
+            </div>
+        </div>
+        
+        <button class="button step2" id="processBtn" onclick="processEnrollmentData()" disabled>
+            Step 2: Process
         </button>
         
         <div class="progress" id="progressContainer" style="display: none;">
             <div class="progress-bar" id="progressBar"></div>
         </div>
         
-        <div id="fieldInfo" class="field-info" style="display: none;">
-            <h3>Detected Fields:</h3>
-            <div id="ssnFields" class="field-list"></div>
-            <div id="dateFields" class="field-list"></div>
-        </div>
-        
         <div id="status" class="status" style="display: none;"></div>
     </div>
 
     <script>
+        let detectedHeaders = [];
+        let currentSheetData = [];
+        let selectedSSNFields = [];
+        let selectedDateFields = [];
+
         Office.onReady(() => {
             console.log('Add-in initialized');
+            updateStepIndicators('none');
         });
+
+        function updateStepIndicators(currentStep) {
+            const step1 = document.getElementById('step1Indicator');
+            const step2 = document.getElementById('step2Indicator');
+            
+            // Reset classes
+            step1.className = 'step';
+            step2.className = 'step';
+            
+            if (currentStep === 'analyze') {
+                step1.className = 'step active';
+            } else if (currentStep === 'process') {
+                step1.className = 'step completed';
+                step2.className = 'step active';
+            } else if (currentStep === 'completed') {
+                step1.className = 'step completed';
+                step2.className = 'step completed';
+            }
+        }
 
         function showStatus(message, type = 'info') {
             const statusDiv = document.getElementById('status');
@@ -181,21 +287,100 @@
             }
         }
 
-        function showFieldInfo(ssnFields, dateFields) {
-            const fieldInfoDiv = document.getElementById('fieldInfo');
-            const ssnFieldsDiv = document.getElementById('ssnFields');
-            const dateFieldsDiv = document.getElementById('dateFields');
+        function detectFields(headers) {
+            const ssnFields = [];
+            const dateFields = [];
             
-            ssnFieldsDiv.innerHTML = '<strong>SSN Fields:</strong> ' + ssnFields.join(', ');
-            dateFieldsDiv.innerHTML = '<strong>Date Fields:</strong> ' + dateFields.join(', ');
+            headers.forEach((header, index) => {
+                if (typeof header === 'string') {
+                    const headerLower = header.toLowerCase();
+                    
+                    // Detect SSN fields
+                    if (headerLower.includes('ssn') || 
+                        headerLower.includes('social security') ||
+                        headerLower.includes('employee ssn')) {
+                        ssnFields.push({ name: header, index: index });
+                    }
+                    
+                    // Detect date fields
+                    if (headerLower.includes('date') || 
+                        headerLower.includes('dob') ||
+                        headerLower.includes('enrolled') ||
+                        headerLower.includes('hire') ||
+                        headerLower.includes('start')) {
+                        dateFields.push({ name: header, index: index });
+                    }
+                }
+            });
             
-            fieldInfoDiv.style.display = 'block';
+            return { ssnFields, dateFields };
+        }
+
+        function createFieldCheckboxes(fields, containerId, fieldType) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            if (fields.length === 0) {
+                container.innerHTML = '<div style="color: #6c757d; font-style: italic;">No ' + fieldType + ' fields detected</div>';
+                return;
+            }
+            
+            fields.forEach((field, index) => {
+                const checkboxDiv = document.createElement('div');
+                checkboxDiv.className = 'field-checkbox highlighted';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `${fieldType}_${index}`;
+                checkbox.value = field.name;
+                checkbox.checked = true; // Auto-select detected fields
+                checkbox.addEventListener('change', updateSelectedFields);
+                
+                const label = document.createElement('label');
+                label.htmlFor = `${fieldType}_${index}`;
+                label.textContent = field.name;
+                
+                checkboxDiv.appendChild(checkbox);
+                checkboxDiv.appendChild(label);
+                container.appendChild(checkboxDiv);
+            });
+        }
+
+        function updateSelectedFields() {
+            selectedSSNFields = [];
+            selectedDateFields = [];
+            
+            // Get selected SSN fields
+            const ssnCheckboxes = document.querySelectorAll('#ssnFieldCheckboxes input[type="checkbox"]:checked');
+            ssnCheckboxes.forEach(checkbox => {
+                selectedSSNFields.push(checkbox.value);
+            });
+            
+            // Get selected date fields
+            const dateCheckboxes = document.querySelectorAll('#dateFieldCheckboxes input[type="checkbox"]:checked');
+            dateCheckboxes.forEach(checkbox => {
+                selectedDateFields.push(checkbox.value);
+            });
+            
+            // Enable/disable process button based on selections
+            const processBtn = document.getElementById('processBtn');
+            if (selectedSSNFields.length > 0) {
+                processBtn.disabled = false;
+                showStatus(`Ready to process with ${selectedSSNFields.length} SSN field(s) and ${selectedDateFields.length} date field(s)`, 'success');
+            } else {
+                processBtn.disabled = true;
+                showStatus('Please select at least one SSN field to continue', 'error');
+            }
         }
 
         async function analyzeCurrentSheet() {
             try {
+                updateStepIndicators('analyze');
                 showStatus('Analyzing current sheet...', 'info');
                 updateProgress(25);
+                
+                const analyzeBtn = document.getElementById('analyzeBtn');
+                analyzeBtn.disabled = true;
                 
                 await Excel.run(async (context) => {
                     const worksheet = context.workbook.worksheets.getActiveWorksheet();
@@ -217,51 +402,36 @@
                     
                     updateProgress(50);
                     
+                    // Store data for later processing
+                    currentSheetData = data;
+                    detectedHeaders = data[0];
+                    
                     // Analyze headers
-                    const headers = data[0];
-                    const { ssnFields, dateFields } = detectFields(headers);
+                    const { ssnFields, dateFields } = detectFields(detectedHeaders);
                     
                     updateProgress(75);
                     
-                    showFieldInfo(ssnFields, dateFields);
-                    showStatus(`Analysis complete. Found ${ssnFields.length} SSN fields and ${dateFields.length} date fields`, 'success');
+                    // Create field selection interface
+                    createFieldCheckboxes(ssnFields, 'ssnFieldCheckboxes', 'ssn');
+                    createFieldCheckboxes(dateFields, 'dateFieldCheckboxes', 'date');
+                    
+                    // Show field selection
+                    document.getElementById('fieldSelection').style.display = 'block';
+                    
+                    // Initialize selected fields
+                    updateSelectedFields();
                     
                     updateProgress(100);
                     setTimeout(() => updateProgress(0), 1000);
                 });
+                
+                analyzeBtn.disabled = false;
+                
             } catch (error) {
                 showStatus('Error analyzing sheet: ' + error.message, 'error');
                 updateProgress(0);
+                document.getElementById('analyzeBtn').disabled = false;
             }
-        }
-
-        function detectFields(headers) {
-            const ssnFields = [];
-            const dateFields = [];
-            
-            headers.forEach((header, index) => {
-                if (typeof header === 'string') {
-                    const headerLower = header.toLowerCase();
-                    
-                    // Detect SSN fields
-                    if (headerLower.includes('ssn') || 
-                        headerLower.includes('social security') ||
-                        headerLower.includes('employee ssn')) {
-                        ssnFields.push(header);
-                    }
-                    
-                    // Detect date fields
-                    if (headerLower.includes('date') || 
-                        headerLower.includes('dob') ||
-                        headerLower.includes('enrolled') ||
-                        headerLower.includes('hire') ||
-                        headerLower.includes('start')) {
-                        dateFields.push(header);
-                    }
-                }
-            });
-            
-            return { ssnFields, dateFields };
         }
 
         function isDateInPastThreeMonths(dateValue) {
@@ -288,11 +458,6 @@
             return date >= threeMonthsAgo && date <= today;
         }
 
-        function truncateFieldName(fieldName, maxLength = 20) {
-            // Do not truncate - return field name as-is
-            return fieldName;
-        }
-
         function formatSSN(ssn) {
             if (!ssn) return '';
             
@@ -308,6 +473,7 @@
 
         async function processEnrollmentData() {
             try {
+                updateStepIndicators('process');
                 showStatus('Processing enrollment data...', 'info');
                 updateProgress(10);
                 
@@ -316,53 +482,35 @@
                 processBtn.disabled = true;
                 analyzeBtn.disabled = true;
                 
+                if (currentSheetData.length === 0) {
+                    showStatus('No data to process. Please run Step 1: Analyze first.', 'error');
+                    return;
+                }
+                
+                if (selectedSSNFields.length === 0) {
+                    showStatus('No SSN fields selected. Please select at least one SSN field.', 'error');
+                    return;
+                }
+                
                 await Excel.run(async (context) => {
-                    const worksheet = context.workbook.worksheets.getActiveWorksheet();
-                    const usedRange = worksheet.getUsedRange();
-                    
-                    if (!usedRange) {
-                        showStatus('No data found in the current sheet', 'error');
-                        return;
-                    }
-                    
-                    usedRange.load("values");
-                    await context.sync();
-                    
                     updateProgress(25);
                     
-                    const data = usedRange.values;
-                    if (data.length === 0) {
-                        showStatus('No data found in the current sheet', 'error');
-                        return;
-                    }
-                    
-                    const headers = data[0];
-                    const { ssnFields, dateFields } = detectFields(headers);
-                    
-                    showFieldInfo(ssnFields, dateFields);
-                    
-                    if (ssnFields.length === 0) {
-                        showStatus('No SSN fields detected. Please ensure your data contains SSN columns.', 'error');
-                        return;
-                    }
-                    
-                    updateProgress(35);
-                    
                     // Process data
-                    const processedData = processDataBySSN(data, headers, ssnFields, dateFields);
+                    const processedData = processDataBySSN(currentSheetData, detectedHeaders, selectedSSNFields, selectedDateFields);
                     
                     updateProgress(50);
                     
                     // Create new worksheet for policy changes
-                    const policyChangesSheet = await createPolicyChangesSheet(context, processedData.recentChanges, headers);
+                    const policyChangesSheet = await createPolicyChangesSheet(context, processedData.recentChanges, detectedHeaders);
                     
                     updateProgress(75);
                     
                     // Create summary sheet
-                    await createSummarySheet(context, processedData.summary, ssnFields, dateFields);
+                    await createSummarySheet(context, processedData.summary, selectedSSNFields, selectedDateFields);
                     
                     updateProgress(90);
                     
+                    updateStepIndicators('completed');
                     showStatus(`Processing complete! Found ${processedData.recentChanges.length} recent policy changes across ${processedData.summary.totalSSNs} unique SSNs.`, 'success');
                     
                     updateProgress(100);
@@ -392,7 +540,7 @@
             for (let i = 1; i < data.length; i++) {
                 const row = data[i];
                 
-                // Find primary SSN (first SSN field)
+                // Find primary SSN (first selected SSN field)
                 let primarySSN = null;
                 for (const ssnField of ssnFields) {
                     const ssnIndex = headers.indexOf(ssnField);
@@ -409,7 +557,7 @@
                     ssnGroups[primarySSN] = [];
                 }
                 
-                // Create processed row with original field names (no truncation)
+                // Create processed row with original field names
                 const processedRow = {};
                 headers.forEach((header, index) => {
                     processedRow[header] = row[index];
@@ -466,7 +614,7 @@
                     return newSheet;
                 }
                 
-                // Use original headers (no truncation)
+                // Use original headers
                 const headers = originalHeaders;
                 const sheetData = [headers];
                 
@@ -519,8 +667,8 @@
                     ["Unique SSNs Found", summary.totalSSNs],
                     ["Recent Policy Changes", summary.recentChanges],
                     [""],
-                    ["Detected SSN Fields", ssnFields.join(", ")],
-                    ["Detected Date Fields", dateFields.join(", ")],
+                    ["Selected SSN Fields", ssnFields.join(", ")],
+                    ["Selected Date Fields", dateFields.join(", ")],
                     [""],
                     ["Processing Date", new Date().toLocaleDateString()],
                     ["Processing Time", new Date().toLocaleTimeString()]
