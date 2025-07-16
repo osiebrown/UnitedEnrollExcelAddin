@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -288,7 +287,13 @@
             </div>
             
             <div class="zero-null-info">
-                <strong>Special Rule:</strong> Rows with ZERO (0) or NULL/empty values in policy date fields will also be included in the Policy Changes sheet for attention.
+                <strong>Enhanced Logic:</strong> 
+                <ul style="margin: 5px 0; padding-left: 20px;">
+                    <li>Rows with ZERO (0) or NULL/empty values in policy date fields will be included</li>
+                    <li>If ANY row for an SSN matches criteria, ALL rows for that SSN will be included</li>
+                    <li>Multiple rows per SSN will be consolidated into ONE row with unique data</li>
+                    <li>Dollar amounts will be summed across all rows per SSN</li>
+                </ul>
             </div>
         </div>
         
@@ -608,9 +613,10 @@
 
         function processDataBySSN(data, headers, ssnField, dateFields, targetDate) {
             const ssnGroups = {};
-            const matchingRows = [];
+            const consolidatedRows = [];
             let dateMatchCount = 0;
             let zeroNullMatchCount = 0;
+            const matchingSSNs = new Set();
             
             // Find SSN column index
             const ssnIndex = headers.indexOf(ssnField);
@@ -620,14 +626,15 @@
             
             debugLog(`Processing ${data.length - 1} data rows (excluding header)`);
             
-            // Skip header row
+            // First pass: Find all SSNs that have matching dates or zero/null values
             for (let i = 1; i < data.length; i++) {
                 const row = data[i];
+                const ssn = formatSSN(row[ssnIndex]);
+                if (!ssn) continue;
                 
                 // Check if any date field matches the target date OR is zero/null
                 let hasMatchingDate = false;
                 let hasZeroOrNull = false;
-                let matchReason = '';
                 
                 for (const dateField of dateFields) {
                     const dateIndex = headers.indexOf(dateField.name);
@@ -637,45 +644,127 @@
                         // Check for exact date match
                         if (isDateMatch(dateValue, targetDate)) {
                             hasMatchingDate = true;
-                            matchReason = `Date match in ${dateField.name}`;
+                            dateMatchCount++;
                             break;
                         }
                         
                         // Check for zero or null
                         if (isZeroOrNull(dateValue)) {
                             hasZeroOrNull = true;
-                            matchReason = `Zero/null value in ${dateField.name}`;
+                            zeroNullMatchCount++;
                         }
                     }
                 }
                 
-                if (!hasMatchingDate && !hasZeroOrNull) continue;
-                
-                // Count match types
-                if (hasMatchingDate) dateMatchCount++;
-                if (hasZeroOrNull) zeroNullMatchCount++;
-                
-                // Get SSN for this row
+                if (hasMatchingDate || hasZeroOrNull) {
+                    matchingSSNs.add(ssn);
+                }
+            }
+            
+            debugLog(`Found ${matchingSSNs.size} SSNs with matching criteria`);
+            
+            // Second pass: Collect ALL rows for matching SSNs
+            for (let i = 1; i < data.length; i++) {
+                const row = data[i];
                 const ssn = formatSSN(row[ssnIndex]);
                 if (!ssn) continue;
                 
-                // Create processed row
-                const processedRow = {};
-                headers.forEach((header, index) => {
-                    processedRow[header] = row[index];
-                });
-                processedRow._matchReason = matchReason; // Add for debugging
-                
-                // Group by SSN
-                if (!ssnGroups[ssn]) {
-                    ssnGroups[ssn] = [];
+                // If this SSN had any matching dates, include ALL rows for this SSN
+                if (matchingSSNs.has(ssn)) {
+                    if (!ssnGroups[ssn]) {
+                        ssnGroups[ssn] = [];
+                    }
+                    
+                    const processedRow = {};
+                    headers.forEach((header, index) => {
+                        processedRow[header] = row[index];
+                    });
+                    
+                    ssnGroups[ssn].push(processedRow);
                 }
-                ssnGroups[ssn].push(processedRow);
-                matchingRows.push(processedRow);
             }
             
+            // Third pass: Consolidate rows by SSN into unique field data
+            for (const [ssn, rows] of Object.entries(ssnGroups)) {
+                const consolidatedRow = consolidateSSNRows(rows, headers);
+                consolidatedRows.push(consolidatedRow);
+            }
+            
+            debugLog(`Consolidated ${Object.keys(ssnGroups).length} SSNs into ${consolidatedRows.length} unique rows`);
             debugLog(`Found ${dateMatchCount} date matches and ${zeroNullMatchCount} zero/null matches`);
-            return { ssnGroups, matchingRows };
+            
+            return { 
+                ssnGroups, 
+                matchingRows: consolidatedRows,
+                originalRowCount: Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)
+            };
+        }
+
+        function consolidateSSNRows(rows, headers) {
+            if (rows.length === 0) return {};
+            if (rows.length === 1) return rows[0];
+            
+            const consolidatedRow = {};
+            const sumTotals = {};
+            let totalDollarAmount = 0;
+            
+            // Process each header/field
+            headers.forEach(header => {
+                const values = rows.map(row => row[header]).filter(val => val !== null && val !== undefined && val !== '');
+                
+                if (values.length === 0) {
+                    consolidatedRow[header] = '';
+                    return;
+                }
+                
+                // Check if this field contains dollar values that should be summed
+                const dollarValues = values.filter(val => isDollarValue(val));
+                if (dollarValues.length > 0) {
+                    const sum = dollarValues.reduce((acc, val) => acc + parseFloat(val), 0);
+                    sumTotals[header] = sum;
+                    totalDollarAmount += sum;
+                    consolidatedRow[header] = `${sum.toFixed(2)}`;
+                } else {
+                    // Get unique values only
+                    const uniqueValues = [...new Set(values.map(val => {
+                        if (val instanceof Date) return val.toLocaleDateString();
+                        return String(val);
+                    }))];
+                    
+                    if (uniqueValues.length === 1) {
+                        consolidatedRow[header] = uniqueValues[0];
+                    } else {
+                        // Multiple unique values - combine them
+                        consolidatedRow[header] = uniqueValues.join(' | ');
+                    }
+                }
+            });
+            
+            // Add summary information
+            consolidatedRow._isConsolidated = true;
+            consolidatedRow._originalRowCount = rows.length;
+            consolidatedRow._totalDollarAmount = totalDollarAmount;
+            consolidatedRow._sumTotals = sumTotals;
+            
+            return consolidatedRow;
+        }
+
+        function isDollarValue(value) {
+            if (typeof value !== 'number') {
+                // Try to parse as number if it's a string
+                if (typeof value === 'string') {
+                    const cleanValue = value.replace(/[$,]/g, '');
+                    const parsed = parseFloat(cleanValue);
+                    if (!isNaN(parsed)) {
+                        value = parsed;
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            return value > 0 && value < 10000; // Increased threshold for dollar values
         }
 
         async function processEnrollmentData() {
@@ -803,72 +892,99 @@
                     return;
                 }
                 
-                // Step 4: Write headers
-                const headerRange = newSheet.getRange(`A1:${getExcelColumnName(originalHeaders.length)}1`);
-                headerRange.values = [originalHeaders];
+                // Step 4: Create enhanced headers with summary columns
+                const enhancedHeaders = [...originalHeaders];
+                
+                // Add summary columns
+                enhancedHeaders.push('CONSOLIDATED_ROWS');
+                enhancedHeaders.push('TOTAL_DOLLAR_AMOUNT');
+                enhancedHeaders.push('CONSOLIDATION_NOTES');
+                
+                // Write headers
+                const headerRange = newSheet.getRange(`A1:${getExcelColumnName(enhancedHeaders.length)}1`);
+                headerRange.values = [enhancedHeaders];
                 headerRange.format.font.bold = true;
                 headerRange.format.fill.color = "#0078d4";
                 headerRange.format.font.color = "white";
                 await context.sync();
-                debugLog('Headers written successfully');
+                debugLog('Enhanced headers written successfully');
                 
                 let currentRow = 2;
                 let totalRowsWritten = 0;
                 
-                // Step 5: Process each SSN group
+                // Step 5: Process consolidated data (one row per SSN)
+                const consolidatedData = [];
+                
                 for (const [ssn, rows] of Object.entries(ssnGroups)) {
-                    debugLog(`Processing SSN group: ${ssn} with ${rows.length} rows`);
+                    const consolidatedRow = consolidateSSNRows(rows, originalHeaders);
+                    consolidatedData.push({
+                        ssn: ssn,
+                        data: consolidatedRow,
+                        originalRows: rows
+                    });
+                }
+                
+                debugLog(`Processing ${consolidatedData.length} consolidated SSN entries`);
+                
+                // Step 6: Write consolidated data
+                for (const entry of consolidatedData) {
+                    const { ssn, data, originalRows } = entry;
                     
-                    // Write all rows for this SSN
-                    for (const row of rows) {
-                        const rowData = originalHeaders.map(header => {
-                            const value = row[header];
-                            return (value !== undefined && value !== null) ? value : '';
-                        });
-                        
-                        const rowRange = newSheet.getRange(`A${currentRow}:${getExcelColumnName(originalHeaders.length)}${currentRow}`);
-                        rowRange.values = [rowData];
-                        currentRow++;
-                        totalRowsWritten++;
-                        
-                        // Sync periodically to avoid memory issues
-                        if (totalRowsWritten % 50 === 0) {
-                            await context.sync();
-                            debugLog(`Synced after ${totalRowsWritten} rows`);
+                    // Prepare row data for all original headers
+                    const rowData = originalHeaders.map(header => {
+                        const value = data[header];
+                        return (value !== undefined && value !== null) ? value : '';
+                    });
+                    
+                    // Add summary columns
+                    rowData.push(data._originalRowCount || 1); // Number of rows consolidated
+                    rowData.push(data._totalDollarAmount ? `${data._totalDollarAmount.toFixed(2)}` : '$0.00'); // Total dollar amount
+                    
+                    // Create consolidation notes
+                    let notes = '';
+                    if (data._originalRowCount > 1) {
+                        notes = `Consolidated ${data._originalRowCount} rows. `;
+                        if (data._sumTotals && Object.keys(data._sumTotals).length > 0) {
+                            const sumDetails = Object.entries(data._sumTotals)
+                                .map(([field, sum]) => `${field}: ${sum.toFixed(2)}`)
+                                .join(', ');
+                            notes += `Sums: ${sumDetails}`;
                         }
+                    } else {
+                        notes = 'Single row - no consolidation needed';
+                    }
+                    rowData.push(notes);
+                    
+                    // Write the consolidated row
+                    const rowRange = newSheet.getRange(`A${currentRow}:${getExcelColumnName(enhancedHeaders.length)}${currentRow}`);
+                    rowRange.values = [rowData];
+                    
+                    // Apply special formatting for consolidated rows
+                    if (data._originalRowCount > 1) {
+                        // Highlight consolidated rows in light blue
+                        rowRange.format.fill.color = "#E3F2FD";
+                        
+                        // Make dollar sum columns bold
+                        const dollarSumColumn = newSheet.getRange(`${getExcelColumnName(enhancedHeaders.length - 1)}${currentRow}`);
+                        dollarSumColumn.format.font.bold = true;
+                        dollarSumColumn.format.fill.color = "#FFEB3B"; // Yellow for dollar totals
                     }
                     
-                    // If multiple rows for same SSN, add sum row
-                    if (rows.length > 1) {
-                        const sumRow = originalHeaders.map(header => {
-                            // Calculate sum for dollar values under $2000
-                            const values = rows.map(row => row[header]).filter(val => isDollarValue(val));
-                            if (values.length > 0) {
-                                const sum = values.reduce((acc, val) => acc + val, 0);
-                                return `SUM: $${sum.toFixed(2)}`;
-                            }
-                            return '';
-                        });
-                        
-                        const sumRange = newSheet.getRange(`A${currentRow}:${getExcelColumnName(originalHeaders.length)}${currentRow}`);
-                        sumRange.values = [sumRow];
-                        
-                        // Highlight sum cells in yellow
-                        sumRange.format.fill.color = "#FFFF00";
-                        sumRange.format.font.bold = true;
-                        currentRow++;
-                        totalRowsWritten++;
-                    }
-                    
-                    // Skip a row for organization
                     currentRow++;
+                    totalRowsWritten++;
+                    
+                    // Sync periodically to avoid memory issues
+                    if (totalRowsWritten % 25 === 0) {
+                        await context.sync();
+                        debugLog(`Synced after ${totalRowsWritten} consolidated rows`);
+                    }
                 }
                 
                 // Final sync
                 await context.sync();
-                debugLog(`Total rows written: ${totalRowsWritten}`);
+                debugLog(`Total consolidated rows written: ${totalRowsWritten}`);
                 
-                // Step 6: Auto-fit columns
+                // Step 7: Auto-fit columns
                 try {
                     newSheet.getUsedRange().format.autofitColumns();
                     await context.sync();
@@ -877,7 +993,34 @@
                     debugLog('Auto-fit failed, continuing anyway: ' + autofitError.message);
                 }
                 
-                // Step 7: Activate the new sheet
+                // Step 8: Add summary section at the bottom
+                const summaryStartRow = currentRow + 2;
+                const summaryData = [
+                    ['PROCESSING SUMMARY', ''],
+                    ['Total Unique SSNs:', Object.keys(ssnGroups).length],
+                    ['Total Original Rows:', Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)],
+                    ['Total Consolidated Rows:', totalRowsWritten],
+                    ['Consolidation Ratio:', `${Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)}:${totalRowsWritten}`],
+                    ['Processing Date:', new Date().toLocaleDateString()],
+                    ['Processing Time:', new Date().toLocaleTimeString()]
+                ];
+                
+                for (let i = 0; i < summaryData.length; i++) {
+                    const summaryRange = newSheet.getRange(`A${summaryStartRow + i}:B${summaryStartRow + i}`);
+                    summaryRange.values = [summaryData[i]];
+                    
+                    if (i === 0) {
+                        // Format summary header
+                        summaryRange.format.font.bold = true;
+                        summaryRange.format.fill.color = "#4CAF50";
+                        summaryRange.format.font.color = "white";
+                    }
+                }
+                
+                await context.sync();
+                debugLog('Summary section added');
+                
+                // Step 9: Activate the new sheet
                 newSheet.activate();
                 await context.sync();
                 debugLog('Policy changes sheet activated');
@@ -908,57 +1051,86 @@
                 await context.sync();
                 debugLog('New summary sheet created');
                 
-                // Count different match types
-                let dateMatches = 0;
-                let zeroNullMatches = 0;
+                // Calculate consolidation statistics
+                const totalOriginalRows = processedData.originalRowCount || 0;
+                const totalConsolidatedRows = processedData.matchingRows.length;
+                const totalSSNs = Object.keys(processedData.ssnGroups).length;
+                const consolidationRatio = totalOriginalRows > 0 ? (totalOriginalRows / totalConsolidatedRows).toFixed(2) : '0';
+                
+                // Calculate dollar amounts
+                let totalDollarAmount = 0;
+                let consolidatedRowsCount = 0;
                 
                 processedData.matchingRows.forEach(row => {
-                    if (row._matchReason && row._matchReason.includes('Date match')) {
-                        dateMatches++;
-                    } else if (row._matchReason && row._matchReason.includes('Zero/null')) {
-                        zeroNullMatches++;
+                    if (row._totalDollarAmount) {
+                        totalDollarAmount += row._totalDollarAmount;
+                    }
+                    if (row._originalRowCount > 1) {
+                        consolidatedRowsCount++;
                     }
                 });
                 
                 const summaryData = [
                     ["Enrollment Data Processing Summary", ""],
                     ["", ""],
-                    ["Metric", "Value"],
+                    ["BASIC INFORMATION", ""],
                     ["Policy Change Date", policyChangeDate.toLocaleDateString()],
-                    ["Total Matching Records", processedData.matchingRows.length],
-                    ["  - Date Matches", dateMatches],
-                    ["  - Zero/Null Matches", zeroNullMatches],
-                    ["Unique SSNs Affected", Object.keys(processedData.ssnGroups).length],
-                    ["", ""],
                     ["Selected SSN Field", ssnField],
                     ["Date Fields Scanned", dateFields.map(f => f.name).join(", ")],
                     ["", ""],
+                    ["DATA PROCESSING RESULTS", ""],
+                    ["Total Original Rows Found", totalOriginalRows],
+                    ["Total Consolidated Rows Created", totalConsolidatedRows],
+                    ["Unique SSNs Processed", totalSSNs],
+                    ["Consolidation Ratio", `${consolidationRatio}:1`],
+                    ["SSNs with Multiple Rows", consolidatedRowsCount],
+                    ["SSNs with Single Row", totalSSNs - consolidatedRowsCount],
+                    ["", ""],
+                    ["FINANCIAL SUMMARY", ""],
+                    ["Total Dollar Amount", `${totalDollarAmount.toFixed(2)}`],
+                    ["Average per SSN", totalSSNs > 0 ? `${(totalDollarAmount / totalSSNs).toFixed(2)}` : '$0.00'],
+                    ["", ""],
+                    ["CONSOLIDATION LOGIC", ""],
+                    ["Rule 1", "All rows for SSN included if ANY date matches criteria"],
+                    ["Rule 2", "Duplicate field data removed, unique values combined"],
+                    ["Rule 3", "Dollar amounts summed across all rows per SSN"],
+                    ["Rule 4", "Date matches OR zero/null values trigger inclusion"],
+                    ["", ""],
+                    ["PROCESSING METADATA", ""],
                     ["Processing Date", new Date().toLocaleDateString()],
-                    ["Processing Time", new Date().toLocaleTimeString()]
+                    ["Processing Time", new Date().toLocaleTimeString()],
+                    ["Debug Mode", debugMode ? "Enabled" : "Disabled"]
                 ];
                 
                 // Write data row by row
                 for (let i = 0; i < summaryData.length; i++) {
                     const rowRange = summarySheet.getRange(`A${i + 1}:B${i + 1}`);
                     rowRange.values = [summaryData[i]];
+                    
+                    // Apply formatting based on content
+                    const content = summaryData[i][0];
+                    if (content === "Enrollment Data Processing Summary") {
+                        // Main title
+                        rowRange.merge();
+                        rowRange.format.font.bold = true;
+                        rowRange.format.font.size = 14;
+                        rowRange.format.fill.color = "#0078d4";
+                        rowRange.format.font.color = "white";
+                        rowRange.format.horizontalAlignment = "Center";
+                    } else if (content.includes("INFORMATION") || content.includes("RESULTS") || content.includes("SUMMARY") || content.includes("LOGIC") || content.includes("METADATA")) {
+                        // Section headers
+                        rowRange.format.font.bold = true;
+                        rowRange.format.fill.color = "#E3F2FD";
+                        rowRange.format.font.color = "#1976D2";
+                    } else if (content.startsWith("Rule")) {
+                        // Rule items
+                        rowRange.format.fill.color = "#F3E5F5";
+                        rowRange.format.font.color = "#7B1FA2";
+                    }
                 }
                 
                 await context.sync();
-                debugLog('Summary data written');
-                
-                // Format title
-                const titleRange = summarySheet.getRange("A1:B1");
-                titleRange.merge();
-                titleRange.format.font.bold = true;
-                titleRange.format.font.size = 14;
-                titleRange.format.fill.color = "#0078d4";
-                titleRange.format.font.color = "white";
-                titleRange.format.horizontalAlignment = "Center";
-                
-                // Format headers
-                const headerRange = summarySheet.getRange("A3:B3");
-                headerRange.format.font.bold = true;
-                headerRange.format.fill.color = "#f2f2f2";
+                debugLog('Summary data written and formatted');
                 
                 // Auto-fit columns
                 summarySheet.getUsedRange().format.autofitColumns();
