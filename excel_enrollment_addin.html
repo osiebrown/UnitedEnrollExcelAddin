@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -292,7 +293,7 @@
                     <li>Rows with ZERO (0) or NULL/empty values in policy date fields will be included</li>
                     <li>If ANY row for an SSN matches criteria, ALL rows for that SSN will be included</li>
                     <li>Multiple rows per SSN will be consolidated into ONE row with unique data</li>
-                    <li>Dollar amounts will be summed across all rows per SSN</li>
+                    <li>Enrollment costs (under $2000) will be summed across all rows per SSN</li>
                 </ul>
             </div>
         </div>
@@ -593,22 +594,23 @@
                    (typeof value === 'string' && value.trim() === '0');
         }
 
-        function formatSSN(ssn) {
-            if (!ssn) return '';
-            
-            // Handle different SSN formats
-            let ssnStr = ssn.toString().replace(/\D/g, '');
-            
-            if (ssnStr.length === 9) {
-                return ssnStr.substring(0, 3) + '-' + ssnStr.substring(3, 5) + '-' + ssnStr.substring(5);
+        function isEnrollmentCost(value) {
+            // Check if this is a valid enrollment cost (numeric value under $2000)
+            if (typeof value !== 'number') {
+                // Try to parse as number if it's a string
+                if (typeof value === 'string') {
+                    const cleanValue = value.replace(/[$,]/g, '');
+                    const parsed = parseFloat(cleanValue);
+                    if (!isNaN(parsed)) {
+                        value = parsed;
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
             }
-            
-            return ssn.toString();
-        }
-
-        function isDollarValue(value) {
-            if (typeof value !== 'number') return false;
-            return value > 0 && value < 2000;
+            return value > 0 && value < 2000; // Under $2000 for enrollment costs
         }
 
         function processDataBySSN(data, headers, ssnField, dateFields, targetDate) {
@@ -629,7 +631,7 @@
             // First pass: Find all SSNs that have matching dates or zero/null values
             for (let i = 1; i < data.length; i++) {
                 const row = data[i];
-                const ssn = formatSSN(row[ssnIndex]);
+                const ssn = row[ssnIndex]; // Keep original SSN format
                 if (!ssn) continue;
                 
                 // Check if any date field matches the target date OR is zero/null
@@ -666,7 +668,7 @@
             // Second pass: Collect ALL rows for matching SSNs
             for (let i = 1; i < data.length; i++) {
                 const row = data[i];
-                const ssn = formatSSN(row[ssnIndex]);
+                const ssn = row[ssnIndex]; // Keep original SSN format
                 if (!ssn) continue;
                 
                 // If this SSN had any matching dates, include ALL rows for this SSN
@@ -705,8 +707,8 @@
             if (rows.length === 1) return rows[0];
             
             const consolidatedRow = {};
-            const sumTotals = {};
-            let totalDollarAmount = 0;
+            let totalEnrollmentCost = 0;
+            let enrollmentCostFields = [];
             
             // Process each header/field
             headers.forEach(header => {
@@ -717,13 +719,13 @@
                     return;
                 }
                 
-                // Check if this field contains dollar values that should be summed
-                const dollarValues = values.filter(val => isDollarValue(val));
-                if (dollarValues.length > 0) {
-                    const sum = dollarValues.reduce((acc, val) => acc + parseFloat(val), 0);
-                    sumTotals[header] = sum;
-                    totalDollarAmount += sum;
-                    consolidatedRow[header] = `${sum.toFixed(2)}`;
+                // Check if this field contains enrollment costs that should be summed
+                const enrollmentCosts = values.filter(val => isEnrollmentCost(val));
+                if (enrollmentCosts.length > 0) {
+                    const sum = enrollmentCosts.reduce((acc, val) => acc + parseFloat(val), 0);
+                    totalEnrollmentCost += sum;
+                    enrollmentCostFields.push(header);
+                    consolidatedRow[header] = sum.toFixed(2);
                 } else {
                     // Get unique values only
                     const uniqueValues = [...new Set(values.map(val => {
@@ -743,28 +745,10 @@
             // Add summary information
             consolidatedRow._isConsolidated = true;
             consolidatedRow._originalRowCount = rows.length;
-            consolidatedRow._totalDollarAmount = totalDollarAmount;
-            consolidatedRow._sumTotals = sumTotals;
+            consolidatedRow._totalEnrollmentCost = totalEnrollmentCost;
+            consolidatedRow._enrollmentCostFields = enrollmentCostFields;
             
             return consolidatedRow;
-        }
-
-        function isDollarValue(value) {
-            if (typeof value !== 'number') {
-                // Try to parse as number if it's a string
-                if (typeof value === 'string') {
-                    const cleanValue = value.replace(/[$,]/g, '');
-                    const parsed = parseFloat(cleanValue);
-                    if (!isNaN(parsed)) {
-                        value = parsed;
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            return value > 0 && value < 10000; // Increased threshold for dollar values
         }
 
         async function processEnrollmentData() {
@@ -897,7 +881,7 @@
                 
                 // Add summary columns
                 enhancedHeaders.push('CONSOLIDATED_ROWS');
-                enhancedHeaders.push('TOTAL_DOLLAR_AMOUNT');
+                enhancedHeaders.push('TOTAL_ENROLLMENT_COST');
                 enhancedHeaders.push('CONSOLIDATION_NOTES');
                 
                 // Write headers
@@ -938,17 +922,17 @@
                     
                     // Add summary columns
                     rowData.push(data._originalRowCount || 1); // Number of rows consolidated
-                    rowData.push(data._totalDollarAmount ? `${data._totalDollarAmount.toFixed(2)}` : '$0.00'); // Total dollar amount
+                    rowData.push(data._totalEnrollmentCost ? `${data._totalEnrollmentCost.toFixed(2)}` : '$0.00'); // Total enrollment cost only
                     
                     // Create consolidation notes
                     let notes = '';
                     if (data._originalRowCount > 1) {
                         notes = `Consolidated ${data._originalRowCount} rows. `;
-                        if (data._sumTotals && Object.keys(data._sumTotals).length > 0) {
-                            const sumDetails = Object.entries(data._sumTotals)
-                                .map(([field, sum]) => `${field}: ${sum.toFixed(2)}`)
+                        if (data._enrollmentCostFields && data._enrollmentCostFields.length > 0) {
+                            const costDetails = data._enrollmentCostFields
+                                .map(field => `${field}: summed`)
                                 .join(', ');
-                            notes += `Sums: ${sumDetails}`;
+                            notes += `Enrollment cost fields: ${costDetails}`;
                         }
                     } else {
                         notes = 'Single row - no consolidation needed';
@@ -964,10 +948,10 @@
                         // Highlight consolidated rows in light blue
                         rowRange.format.fill.color = "#E3F2FD";
                         
-                        // Make dollar sum columns bold
-                        const dollarSumColumn = newSheet.getRange(`${getExcelColumnName(enhancedHeaders.length - 1)}${currentRow}`);
-                        dollarSumColumn.format.font.bold = true;
-                        dollarSumColumn.format.fill.color = "#FFEB3B"; // Yellow for dollar totals
+                        // Make enrollment cost total column bold and yellow
+                        const costTotalColumn = newSheet.getRange(`${getExcelColumnName(enhancedHeaders.length - 1)}${currentRow}`);
+                        costTotalColumn.format.font.bold = true;
+                        costTotalColumn.format.fill.color = "#FFEB3B"; // Yellow for enrollment cost totals
                     }
                     
                     currentRow++;
@@ -1057,13 +1041,13 @@
                 const totalSSNs = Object.keys(processedData.ssnGroups).length;
                 const consolidationRatio = totalOriginalRows > 0 ? (totalOriginalRows / totalConsolidatedRows).toFixed(2) : '0';
                 
-                // Calculate dollar amounts
-                let totalDollarAmount = 0;
+                // Calculate enrollment cost totals
+                let totalEnrollmentCost = 0;
                 let consolidatedRowsCount = 0;
                 
                 processedData.matchingRows.forEach(row => {
-                    if (row._totalDollarAmount) {
-                        totalDollarAmount += row._totalDollarAmount;
+                    if (row._totalEnrollmentCost) {
+                        totalEnrollmentCost += row._totalEnrollmentCost;
                     }
                     if (row._originalRowCount > 1) {
                         consolidatedRowsCount++;
@@ -1086,15 +1070,16 @@
                     ["SSNs with Multiple Rows", consolidatedRowsCount],
                     ["SSNs with Single Row", totalSSNs - consolidatedRowsCount],
                     ["", ""],
-                    ["FINANCIAL SUMMARY", ""],
-                    ["Total Dollar Amount", `${totalDollarAmount.toFixed(2)}`],
-                    ["Average per SSN", totalSSNs > 0 ? `${(totalDollarAmount / totalSSNs).toFixed(2)}` : '$0.00'],
+                    ["ENROLLMENT COST SUMMARY", ""],
+                    ["Total Enrollment Cost", `${totalEnrollmentCost.toFixed(2)}`],
+                    ["Average Cost per SSN", totalSSNs > 0 ? `${(totalEnrollmentCost / totalSSNs).toFixed(2)}` : '$0.00'],
                     ["", ""],
                     ["CONSOLIDATION LOGIC", ""],
                     ["Rule 1", "All rows for SSN included if ANY date matches criteria"],
                     ["Rule 2", "Duplicate field data removed, unique values combined"],
-                    ["Rule 3", "Dollar amounts summed across all rows per SSN"],
+                    ["Rule 3", "Only enrollment costs (under $2000) are summed per SSN"],
                     ["Rule 4", "Date matches OR zero/null values trigger inclusion"],
+                    ["Rule 5", "Original SSN format preserved in output"],
                     ["", ""],
                     ["PROCESSING METADATA", ""],
                     ["Processing Date", new Date().toLocaleDateString()],
