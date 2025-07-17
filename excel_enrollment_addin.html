@@ -278,23 +278,24 @@
                 <h3>SSN Fields Found:</h3>
                 <div id="ssnFieldCheckboxes"></div>
                 <div class="date-info">
-                    <strong>Note:</strong> Only one SSN field should be selected. If multiple fields contain SSN data, please deselect the incorrect ones.
+                    <strong>Note:</strong> Only one SSN field should be selected.
+                </div>
+            </div>
+            
+            <div class="field-group">
+                <h3>Cost Fields Found:</h3>
+                <div id="costFieldCheckboxes"></div>
+                <div class="date-info">
+                    <strong>Note:</strong> Select fields containing enrollment costs to sum.
                 </div>
             </div>
             
             <div id="dateFieldsInfo" class="date-info">
-                <strong>Date Fields Detected:</strong> <span id="dateFieldsList"></span><br>
-                <em>All date fields will be checked for the specified policy date.</em>
+                <strong>Date Fields:</strong> <span id="dateFieldsList"></span>
             </div>
             
             <div class="zero-null-info">
-                <strong>Enhanced Logic:</strong> 
-                <ul style="margin: 5px 0; padding-left: 20px;">
-                    <li>Rows with ZERO (0) or NULL/empty values in policy date fields will be included</li>
-                    <li>If ANY row for an SSN matches criteria, ALL rows for that SSN will be included</li>
-                    <li>Multiple rows per SSN will be consolidated into ONE row with unique data</li>
-                    <li>Enrollment costs (under $2000) will be summed across all rows per SSN</li>
-                </ul>
+                <strong>Logic:</strong> Consolidates multiple SSN rows into one unique row with cost summation.
             </div>
         </div>
         
@@ -311,883 +312,217 @@
         <div id="debugInfo" class="debug-info" style="display: none;"></div>
     </div>
 
-    <script>
-        let detectedHeaders = [];
-        let currentSheetData = [];
-        let selectedSSNFields = [];
-        let detectedDateFields = [];
-        let policyChangeDate = null;
-        let debugMode = false;
+<script>
+var detectedHeaders = [];
+var currentSheetData = [];
+var selectedSSNFields = [];
+var selectedCostFields = [];
+var detectedDateFields = [];
+var detectedCostFields = [];
+var policyChangeDate = null;
+var debugMode = false;
 
-        // Global error handling
-        window.addEventListener('unhandledrejection', (event) => {
-            console.error('Unhandled promise rejection:', event.reason);
-            debugLog('Unhandled promise rejection: ' + event.reason);
+Office.onReady(function() {
+    console.log('Add-in initialized');
+    var today = new Date();
+    document.getElementById('policyDate').value = today.toISOString().split('T')[0];
+    var urlParams = new URLSearchParams(window.location.search);
+    debugMode = urlParams.get('debug') === 'true';
+    if (debugMode) {
+        document.getElementById('debugInfo').style.display = 'block';
+    }
+});
+
+function debugLog(message) {
+    var timestamp = new Date().toLocaleTimeString();
+    console.log('[' + timestamp + '] ' + message);
+    if (debugMode) {
+        var debugDiv = document.getElementById('debugInfo');
+        debugDiv.innerHTML += '<div>[' + timestamp + '] ' + message + '</div>';
+    }
+}
+
+function showStatus(message, type) {
+    type = type || 'info';
+    var statusDiv = document.getElementById('status');
+    statusDiv.textContent = message;
+    statusDiv.className = 'status ' + type;
+    statusDiv.style.display = 'block';
+}
+
+function updateProgress(percentage) {
+    var progressContainer = document.getElementById('progressContainer');
+    var progressBar = document.getElementById('progressBar');
+    if (percentage > 0) {
+        progressContainer.style.display = 'block';
+        progressBar.style.width = percentage + '%';
+    } else {
+        progressContainer.style.display = 'none';
+    }
+}
+
+function detectFields(headers) {
+    var ssnFields = [];
+    var dateFields = [];
+    var costFields = [];
+    
+    for (var i = 0; i < headers.length; i++) {
+        var header = headers[i];
+        if (typeof header === 'string') {
+            var headerLower = header.toLowerCase();
+            if (headerLower.includes('ssn') || headerLower.includes('social security')) {
+                ssnFields.push({ name: header, index: i });
+            }
+            if (headerLower.includes('date') || headerLower.includes('enrolled')) {
+                dateFields.push({ name: header, index: i });
+            }
+            if (headerLower.includes('cost') || headerLower.includes('amount') || headerLower.includes('fee') || headerLower.includes('price')) {
+                costFields.push({ name: header, index: i });
+            }
+        }
+    }
+    
+    return { ssnFields: ssnFields, dateFields: dateFields, costFields: costFields };
+}
+
+function createFieldCheckboxes(fields, containerId, fieldType) {
+    var container = document.getElementById(containerId);
+    container.innerHTML = '';
+    
+    if (fields.length === 0) {
+        container.innerHTML = '<div style="color: #6c757d;">No ' + fieldType + ' fields detected</div>';
+        return;
+    }
+    
+    for (var i = 0; i < fields.length; i++) {
+        var field = fields[i];
+        var checkboxDiv = document.createElement('div');
+        checkboxDiv.className = 'field-checkbox highlighted';
+        
+        var checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = fieldType + '_' + i;
+        checkbox.value = field.name;
+        checkbox.checked = (fieldType === 'ssn' && i === 0);
+        checkbox.addEventListener('change', updateSelectedFields);
+        
+        var label = document.createElement('label');
+        label.htmlFor = fieldType + '_' + i;
+        label.textContent = field.name;
+        
+        checkboxDiv.appendChild(checkbox);
+        checkboxDiv.appendChild(label);
+        container.appendChild(checkboxDiv);
+    }
+}
+
+function updateSelectedFields() {
+    selectedSSNFields = [];
+    selectedCostFields = [];
+    
+    var ssnCheckboxes = document.querySelectorAll('#ssnFieldCheckboxes input[type="checkbox"]:checked');
+    for (var i = 0; i < ssnCheckboxes.length; i++) {
+        selectedSSNFields.push(ssnCheckboxes[i].value);
+    }
+    
+    var costCheckboxes = document.querySelectorAll('#costFieldCheckboxes input[type="checkbox"]:checked');
+    for (var i = 0; i < costCheckboxes.length; i++) {
+        selectedCostFields.push(costCheckboxes[i].value);
+    }
+    
+    var processBtn = document.getElementById('processBtn');
+    var isValid = selectedSSNFields.length === 1;
+    processBtn.disabled = !isValid;
+    
+    if (isValid) {
+        showStatus('Ready to process with ' + selectedSSNFields[0], 'success');
+    } else {
+        showStatus('Please select exactly one SSN field', 'error');
+    }
+}
+
+function analyzeCurrentSheet() {
+    var dateInput = document.getElementById('policyDate');
+    if (!dateInput.value) {
+        showStatus('Please select a policy change date first', 'error');
+        return;
+    }
+    
+    policyChangeDate = new Date(dateInput.value);
+    showStatus('Analyzing current sheet...', 'info');
+    updateProgress(25);
+    
+    Excel.run(function(context) {
+        var worksheet = context.workbook.worksheets.getActiveWorksheet();
+        var usedRange = worksheet.getUsedRange();
+        usedRange.load("values");
+        
+        return context.sync().then(function() {
+            var data = usedRange.values;
+            currentSheetData = data;
+            detectedHeaders = data[0];
+            
+            var fieldResults = detectFields(detectedHeaders);
+            detectedDateFields = fieldResults.dateFields;
+            detectedCostFields = fieldResults.costFields;
+            
+            createFieldCheckboxes(fieldResults.ssnFields, 'ssnFieldCheckboxes', 'ssn');
+            createFieldCheckboxes(fieldResults.costFields, 'costFieldCheckboxes', 'cost');
+            
+            var dateFieldsList = document.getElementById('dateFieldsList');
+            dateFieldsList.textContent = fieldResults.dateFields.map(function(f) { return f.name; }).join(', ');
+            
+            document.getElementById('fieldSelection').style.display = 'block';
+            updateSelectedFields();
+            updateProgress(100);
+            setTimeout(function() { updateProgress(0); }, 1000);
         });
+    }).catch(function(error) {
+        showStatus('Error: ' + error.message, 'error');
+        updateProgress(0);
+    });
+}
 
-        window.addEventListener('error', (event) => {
-            console.error('Global error:', event.error);
-            debugLog('Global error: ' + event.message);
-        });
-
-        Office.onReady(() => {
-            console.log('Add-in initialized');
-            debugLog('Add-in initialized successfully');
-            updateStepIndicators('none');
-            
-            // Set today's date as default
-            const today = new Date();
-            document.getElementById('policyDate').value = today.toISOString().split('T')[0];
-            
-            // Enable debug mode by adding ?debug=true to URL
-            const urlParams = new URLSearchParams(window.location.search);
-            debugMode = urlParams.get('debug') === 'true';
-            if (debugMode) {
-                document.getElementById('debugInfo').style.display = 'block';
-                debugLog('Debug mode enabled');
+function processEnrollmentData() {
+    if (selectedSSNFields.length !== 1) {
+        showStatus('Please select exactly one SSN field', 'error');
+        return;
+    }
+    
+    showStatus('Processing data...', 'info');
+    updateProgress(50);
+    
+    Excel.run(function(context) {
+        var worksheets = context.workbook.worksheets;
+        var sheetName = "Policy Changes to Note";
+        
+        var existingSheet = worksheets.getItemOrNullObject(sheetName);
+        return context.sync().then(function() {
+            if (!existingSheet.isNullObject) {
+                existingSheet.delete();
             }
-        });
-
-        function debugLog(message) {
-            const timestamp = new Date().toLocaleTimeString();
-            console.log(`[${timestamp}] ${message}`);
-            
-            if (debugMode) {
-                const debugDiv = document.getElementById('debugInfo');
-                debugDiv.innerHTML += `<div>[${timestamp}] ${message}</div>`;
-                debugDiv.scrollTop = debugDiv.scrollHeight;
-            }
-        }
-
-        function updateStepIndicators(currentStep) {
-            const step1 = document.getElementById('step1Indicator');
-            const step2 = document.getElementById('step2Indicator');
-            
-            // Reset classes
-            step1.className = 'step';
-            step2.className = 'step';
-            
-            if (currentStep === 'analyze') {
-                step1.className = 'step active';
-            } else if (currentStep === 'process') {
-                step1.className = 'step completed';
-                step2.className = 'step active';
-            } else if (currentStep === 'completed') {
-                step1.className = 'step completed';
-                step2.className = 'step completed';
-            }
-        }
-
-        function showStatus(message, type = 'info') {
-            const statusDiv = document.getElementById('status');
-            statusDiv.textContent = message;
-            statusDiv.className = `status ${type}`;
-            statusDiv.style.display = 'block';
-            debugLog(`Status: ${type.toUpperCase()} - ${message}`);
-        }
-
-        function updateProgress(percentage) {
-            const progressContainer = document.getElementById('progressContainer');
-            const progressBar = document.getElementById('progressBar');
-            
-            if (percentage > 0) {
-                progressContainer.style.display = 'block';
-                progressBar.style.width = percentage + '%';
-            } else {
-                progressContainer.style.display = 'none';
-            }
-        }
-
-        function detectFields(headers) {
-            const ssnFields = [];
-            const dateFields = [];
-            
-            headers.forEach((header, index) => {
-                if (typeof header === 'string') {
-                    const headerLower = header.toLowerCase();
-                    
-                    // Detect SSN fields
-                    if (headerLower.includes('ssn') || 
-                        headerLower.includes('social security') ||
-                        headerLower.includes('employee ssn')) {
-                        ssnFields.push({ name: header, index: index });
-                    }
-                    
-                    // Detect date fields
-                    if (headerLower.includes('date') || 
-                        headerLower.includes('dob') ||
-                        headerLower.includes('enrolled') ||
-                        headerLower.includes('hire') ||
-                        headerLower.includes('start') ||
-                        headerLower.includes('effective') ||
-                        headerLower.includes('created') ||
-                        headerLower.includes('modified')) {
-                        dateFields.push({ name: header, index: index });
-                    }
-                }
-            });
-            
-            debugLog(`Detected ${ssnFields.length} SSN fields and ${dateFields.length} date fields`);
-            return { ssnFields, dateFields };
-        }
-
-        function createSSNFieldCheckboxes(fields) {
-            const container = document.getElementById('ssnFieldCheckboxes');
-            container.innerHTML = '';
-            
-            if (fields.length === 0) {
-                container.innerHTML = '<div style="color: #6c757d; font-style: italic;">No SSN fields detected</div>';
-                return;
-            }
-            
-            fields.forEach((field, index) => {
-                const checkboxDiv = document.createElement('div');
-                checkboxDiv.className = 'field-checkbox highlighted';
-                
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.id = `ssn_${index}`;
-                checkbox.value = field.name;
-                checkbox.checked = index === 0; // Only check the first one by default
-                checkbox.addEventListener('change', updateSelectedFields);
-                
-                const label = document.createElement('label');
-                label.htmlFor = `ssn_${index}`;
-                label.textContent = field.name;
-                
-                checkboxDiv.appendChild(checkbox);
-                checkboxDiv.appendChild(label);
-                container.appendChild(checkboxDiv);
-            });
-        }
-
-        function displayDateFields(fields) {
-            const dateFieldsList = document.getElementById('dateFieldsList');
-            dateFieldsList.textContent = fields.length > 0 ? fields.map(f => f.name).join(', ') : 'None detected';
-        }
-
-        function updateSelectedFields() {
-            selectedSSNFields = [];
-            
-            // Get selected SSN fields
-            const ssnCheckboxes = document.querySelectorAll('#ssnFieldCheckboxes input[type="checkbox"]:checked');
-            ssnCheckboxes.forEach(checkbox => {
-                selectedSSNFields.push(checkbox.value);
-            });
-            
-            // Validate only one SSN field selected
-            const processBtn = document.getElementById('processBtn');
-            if (selectedSSNFields.length === 1) {
-                processBtn.disabled = false;
-                showStatus(`Ready to process with SSN field: ${selectedSSNFields[0]}`, 'success');
-            } else if (selectedSSNFields.length === 0) {
-                processBtn.disabled = true;
-                showStatus('Please select exactly one SSN field to continue', 'error');
-            } else {
-                processBtn.disabled = true;
-                showStatus('Please select only one SSN field. Multiple SSN fields are not supported.', 'error');
-            }
-        }
-
-        async function analyzeCurrentSheet() {
-            try {
-                // Validate date input
-                const dateInput = document.getElementById('policyDate');
-                if (!dateInput.value) {
-                    showStatus('Please select a policy change date first', 'error');
-                    return;
-                }
-                
-                policyChangeDate = new Date(dateInput.value);
-                debugLog(`Policy change date set to: ${policyChangeDate.toLocaleDateString()}`);
-                
-                updateStepIndicators('analyze');
-                showStatus('Analyzing current sheet...', 'info');
-                updateProgress(25);
-                
-                const analyzeBtn = document.getElementById('analyzeBtn');
-                analyzeBtn.disabled = true;
-                
-                await Excel.run(async (context) => {
-                    const worksheet = context.workbook.worksheets.getActiveWorksheet();
-                    const usedRange = worksheet.getUsedRange();
-                    
-                    if (!usedRange) {
-                        showStatus('No data found in the current sheet', 'error');
-                        return;
-                    }
-                    
-                    usedRange.load("values");
-                    await context.sync();
-                    
-                    const data = usedRange.values;
-                    if (data.length === 0) {
-                        showStatus('No data found in the current sheet', 'error');
-                        return;
-                    }
-                    
-                    updateProgress(50);
-                    
-                    // Store data for later processing
-                    currentSheetData = data;
-                    detectedHeaders = data[0];
-                    debugLog(`Loaded ${data.length} rows with ${detectedHeaders.length} columns`);
-                    
-                    // Analyze headers
-                    const { ssnFields, dateFields } = detectFields(detectedHeaders);
-                    detectedDateFields = dateFields;
-                    
-                    updateProgress(75);
-                    
-                    // Create SSN field selection interface
-                    createSSNFieldCheckboxes(ssnFields);
-                    displayDateFields(dateFields);
-                    
-                    // Show field selection
-                    document.getElementById('fieldSelection').style.display = 'block';
-                    
-                    // Initialize selected fields
-                    updateSelectedFields();
-                    
-                    updateProgress(100);
-                    setTimeout(() => updateProgress(0), 1000);
-                });
-                
-                analyzeBtn.disabled = false;
-                
-            } catch (error) {
-                showStatus('Error analyzing sheet: ' + error.message, 'error');
-                debugLog('Analysis error: ' + error.message);
-                updateProgress(0);
-                document.getElementById('analyzeBtn').disabled = false;
-            }
-        }
-
-        function isDateMatch(dateValue, targetDate) {
-            if (!dateValue || !targetDate) return false;
-            
-            let date;
-            if (typeof dateValue === 'string') {
-                date = new Date(dateValue);
-            } else if (typeof dateValue === 'number') {
-                // Excel serial date number
-                date = new Date((dateValue - 25569) * 86400 * 1000);
-            } else if (dateValue instanceof Date) {
-                date = dateValue;
-            } else {
-                return false;
-            }
-            
-            if (isNaN(date.getTime())) return false;
-            
-            // Compare only the date part (ignore time)
-            return date.toDateString() === targetDate.toDateString();
-        }
-
-        function isZeroOrNull(value) {
-            // Check for null, undefined, empty string, or zero
-            return value === null || 
-                   value === undefined || 
-                   value === '' || 
-                   value === 0 || 
-                   (typeof value === 'string' && value.trim() === '') ||
-                   (typeof value === 'string' && value.trim() === '0');
-        }
-
-        function isEnrollmentCost(value) {
-            // Check if this is a valid enrollment cost (numeric value under $2000)
-            if (typeof value !== 'number') {
-                // Try to parse as number if it's a string
-                if (typeof value === 'string') {
-                    const cleanValue = value.replace(/[$,]/g, '');
-                    const parsed = parseFloat(cleanValue);
-                    if (!isNaN(parsed)) {
-                        value = parsed;
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            return value > 0 && value < 2000; // Under $2000 for enrollment costs
-        }
-
-        function processDataBySSN(data, headers, ssnField, dateFields, targetDate) {
-            const ssnGroups = {};
-            const consolidatedRows = [];
-            let dateMatchCount = 0;
-            let zeroNullMatchCount = 0;
-            const matchingSSNs = new Set();
-            
-            // Find SSN column index
-            const ssnIndex = headers.indexOf(ssnField);
-            if (ssnIndex === -1) {
-                throw new Error(`SSN field "${ssnField}" not found in headers`);
-            }
-            
-            debugLog(`Processing ${data.length - 1} data rows (excluding header)`);
-            
-            // First pass: Find all SSNs that have matching dates or zero/null values
-            for (let i = 1; i < data.length; i++) {
-                const row = data[i];
-                const ssn = row[ssnIndex]; // Keep original SSN format
-                if (!ssn) continue;
-                
-                // Check if any date field matches the target date OR is zero/null
-                let hasMatchingDate = false;
-                let hasZeroOrNull = false;
-                
-                for (const dateField of dateFields) {
-                    const dateIndex = headers.indexOf(dateField.name);
-                    if (dateIndex !== -1) {
-                        const dateValue = row[dateIndex];
-                        
-                        // Check for exact date match
-                        if (isDateMatch(dateValue, targetDate)) {
-                            hasMatchingDate = true;
-                            dateMatchCount++;
-                            break;
-                        }
-                        
-                        // Check for zero or null
-                        if (isZeroOrNull(dateValue)) {
-                            hasZeroOrNull = true;
-                            zeroNullMatchCount++;
-                        }
-                    }
-                }
-                
-                if (hasMatchingDate || hasZeroOrNull) {
-                    matchingSSNs.add(ssn);
-                }
-            }
-            
-            debugLog(`Found ${matchingSSNs.size} SSNs with matching criteria`);
-            
-            // Second pass: Collect ALL rows for matching SSNs
-            for (let i = 1; i < data.length; i++) {
-                const row = data[i];
-                const ssn = row[ssnIndex]; // Keep original SSN format
-                if (!ssn) continue;
-                
-                // If this SSN had any matching dates, include ALL rows for this SSN
-                if (matchingSSNs.has(ssn)) {
-                    if (!ssnGroups[ssn]) {
-                        ssnGroups[ssn] = [];
-                    }
-                    
-                    const processedRow = {};
-                    headers.forEach((header, index) => {
-                        processedRow[header] = row[index];
-                    });
-                    
-                    ssnGroups[ssn].push(processedRow);
-                }
-            }
-            
-            // Third pass: Consolidate rows by SSN into unique field data
-            for (const [ssn, rows] of Object.entries(ssnGroups)) {
-                const consolidatedRow = consolidateSSNRows(rows, headers);
-                consolidatedRows.push(consolidatedRow);
-            }
-            
-            debugLog(`Consolidated ${Object.keys(ssnGroups).length} SSNs into ${consolidatedRows.length} unique rows`);
-            debugLog(`Found ${dateMatchCount} date matches and ${zeroNullMatchCount} zero/null matches`);
-            
-            return { 
-                ssnGroups, 
-                matchingRows: consolidatedRows,
-                originalRowCount: Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)
-            };
-        }
-
-        function consolidateSSNRows(rows, headers) {
-            if (rows.length === 0) return {};
-            if (rows.length === 1) return rows[0];
-            
-            const consolidatedRow = {};
-            let totalEnrollmentCost = 0;
-            let enrollmentCostFields = [];
-            
-            // Process each header/field
-            headers.forEach(header => {
-                const values = rows.map(row => row[header]).filter(val => val !== null && val !== undefined && val !== '');
-                
-                if (values.length === 0) {
-                    consolidatedRow[header] = '';
-                    return;
-                }
-                
-                // Check if this field contains enrollment costs that should be summed
-                const enrollmentCosts = values.filter(val => isEnrollmentCost(val));
-                if (enrollmentCosts.length > 0) {
-                    const sum = enrollmentCosts.reduce((acc, val) => acc + parseFloat(val), 0);
-                    totalEnrollmentCost += sum;
-                    enrollmentCostFields.push(header);
-                    consolidatedRow[header] = sum.toFixed(2);
-                } else {
-                    // Get unique values only
-                    const uniqueValues = [...new Set(values.map(val => {
-                        if (val instanceof Date) return val.toLocaleDateString();
-                        return String(val);
-                    }))];
-                    
-                    if (uniqueValues.length === 1) {
-                        consolidatedRow[header] = uniqueValues[0];
-                    } else {
-                        // Multiple unique values - combine them
-                        consolidatedRow[header] = uniqueValues.join(' | ');
-                    }
-                }
-            });
-            
-            // Add summary information
-            consolidatedRow._isConsolidated = true;
-            consolidatedRow._originalRowCount = rows.length;
-            consolidatedRow._totalEnrollmentCost = totalEnrollmentCost;
-            consolidatedRow._enrollmentCostFields = enrollmentCostFields;
-            
-            return consolidatedRow;
-        }
-
-        async function processEnrollmentData() {
-            try {
-                updateStepIndicators('process');
-                showStatus('Processing enrollment data...', 'info');
-                updateProgress(10);
-                
-                const processBtn = document.getElementById('processBtn');
-                const analyzeBtn = document.getElementById('analyzeBtn');
-                processBtn.disabled = true;
-                analyzeBtn.disabled = true;
-                
-                if (currentSheetData.length === 0) {
-                    showStatus('No data to process. Please run Step 1: Analyze first.', 'error');
-                    return;
-                }
-                
-                if (selectedSSNFields.length !== 1) {
-                    showStatus('Please select exactly one SSN field.', 'error');
-                    return;
-                }
-                
-                if (!policyChangeDate) {
-                    showStatus('Please select a policy change date.', 'error');
-                    return;
-                }
-                
-                debugLog('Starting data processing...');
-                
-                await Excel.run(async (context) => {
-                    updateProgress(25);
-                    
-                    // Process data
-                    const processedData = processDataBySSN(
-                        currentSheetData, 
-                        detectedHeaders, 
-                        selectedSSNFields[0], 
-                        detectedDateFields, 
-                        policyChangeDate
-                    );
-                    
-                    updateProgress(50);
-                    debugLog(`Processed data: ${processedData.matchingRows.length} matching rows, ${Object.keys(processedData.ssnGroups).length} unique SSNs`);
-                    
-                    // Create policy changes sheet with enhanced error handling
-                    await createPolicyChangesSheetWithRetry(context, processedData.ssnGroups, detectedHeaders);
-                    
-                    updateProgress(75);
-                    
-                    // Create summary sheet
-                    await createSummarySheet(context, processedData, selectedSSNFields[0], detectedDateFields);
-                    
-                    updateProgress(90);
-                    
-                    updateStepIndicators('completed');
-                    showStatus(`Processing complete! Found ${processedData.matchingRows.length} matching records across ${Object.keys(processedData.ssnGroups).length} unique SSNs.`, 'success');
-                    
-                    updateProgress(100);
-                    setTimeout(() => updateProgress(0), 1000);
-                });
-            } catch (error) {
-                showStatus('Error processing data: ' + error.message, 'error');
-                debugLog('Processing error: ' + error.message);
-                updateProgress(0);
-            } finally {
-                const processBtn = document.getElementById('processBtn');
-                const analyzeBtn = document.getElementById('analyzeBtn');
-                processBtn.disabled = false;
-                analyzeBtn.disabled = false;
-            }
-        }
-
-        async function createPolicyChangesSheetWithRetry(context, ssnGroups, originalHeaders, maxRetries = 3) {
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    debugLog(`Policy sheet creation attempt ${attempt}/${maxRetries}`);
-                    await createPolicyChangesSheet(context, ssnGroups, originalHeaders);
-                    debugLog('Policy sheet created successfully');
-                    return;
-                } catch (error) {
-                    debugLog(`Attempt ${attempt} failed: ${error.message}`);
-                    
-                    if (attempt === maxRetries) {
-                        throw new Error(`Failed to create Policy Changes sheet after ${maxRetries} attempts: ${error.message}`);
-                    }
-                    
-                    // Wait before retry (exponential backoff)
-                    const delay = Math.pow(2, attempt - 1) * 1000;
-                    debugLog(`Waiting ${delay}ms before retry...`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                }
-            }
-        }
-
-        async function createPolicyChangesSheet(context, ssnGroups, originalHeaders) {
-            try {
-                debugLog('Starting policy changes sheet creation...');
-                
-                // Step 1: Delete existing sheet if present
-                const worksheets = context.workbook.worksheets;
-                const sheetName = "Policy Changes to Note";
-                
-                try {
-                    const existingSheet = worksheets.getItem(sheetName);
-                    existingSheet.delete();
-                    await context.sync();
-                    debugLog('Deleted existing policy changes sheet');
-                } catch (deleteError) {
-                    debugLog('No existing sheet to delete (expected)');
-                }
-                
-                // Step 2: Create new sheet
-                const newSheet = worksheets.add(sheetName);
-                await context.sync();
-                debugLog('New policy changes sheet created');
-                
-                // Step 3: Handle empty data case
-                if (Object.keys(ssnGroups).length === 0) {
-                    const noDataRange = newSheet.getRange("A1");
-                    noDataRange.values = [["No policy changes found for the specified date or zero/null values"]];
-                    noDataRange.format.font.bold = true;
-                    await context.sync();
-                    debugLog('No data to write - created empty sheet message');
-                    return;
-                }
-                
-                // Step 4: Create enhanced headers with summary columns
-                const enhancedHeaders = [...originalHeaders];
-                
-                // Add summary columns
-                enhancedHeaders.push('CONSOLIDATED_ROWS');
-                enhancedHeaders.push('TOTAL_ENROLLMENT_COST');
-                enhancedHeaders.push('CONSOLIDATION_NOTES');
-                
-                // Write headers
-                const headerRange = newSheet.getRange(`A1:${getExcelColumnName(enhancedHeaders.length)}1`);
-                headerRange.values = [enhancedHeaders];
+            return context.sync();
+        }).then(function() {
+            var newSheet = worksheets.add(sheetName);
+            return context.sync().then(function() {
+                var headerRange = newSheet.getRange("A1:D1");
+                headerRange.values = [["SSN", "Data", "Cost Total", "Notes"]];
                 headerRange.format.font.bold = true;
-                headerRange.format.fill.color = "#0078d4";
-                headerRange.format.font.color = "white";
-                await context.sync();
-                debugLog('Enhanced headers written successfully');
                 
-                let currentRow = 2;
-                let totalRowsWritten = 0;
-                
-                // Step 5: Process consolidated data (one row per SSN)
-                const consolidatedData = [];
-                
-                for (const [ssn, rows] of Object.entries(ssnGroups)) {
-                    const consolidatedRow = consolidateSSNRows(rows, originalHeaders);
-                    consolidatedData.push({
-                        ssn: ssn,
-                        data: consolidatedRow,
-                        originalRows: rows
-                    });
-                }
-                
-                debugLog(`Processing ${consolidatedData.length} consolidated SSN entries`);
-                
-                // Step 6: Write consolidated data
-                for (const entry of consolidatedData) {
-                    const { ssn, data, originalRows } = entry;
-                    
-                    // Prepare row data for all original headers
-                    const rowData = originalHeaders.map(header => {
-                        const value = data[header];
-                        return (value !== undefined && value !== null) ? value : '';
-                    });
-                    
-                    // Add summary columns
-                    rowData.push(data._originalRowCount || 1); // Number of rows consolidated
-                    rowData.push(data._totalEnrollmentCost ? `${data._totalEnrollmentCost.toFixed(2)}` : '$0.00'); // Total enrollment cost only
-                    
-                    // Create consolidation notes
-                    let notes = '';
-                    if (data._originalRowCount > 1) {
-                        notes = `Consolidated ${data._originalRowCount} rows. `;
-                        if (data._enrollmentCostFields && data._enrollmentCostFields.length > 0) {
-                            const costDetails = data._enrollmentCostFields
-                                .map(field => `${field}: summed`)
-                                .join(', ');
-                            notes += `Enrollment cost fields: ${costDetails}`;
-                        }
-                    } else {
-                        notes = 'Single row - no consolidation needed';
-                    }
-                    rowData.push(notes);
-                    
-                    // Write the consolidated row
-                    const rowRange = newSheet.getRange(`A${currentRow}:${getExcelColumnName(enhancedHeaders.length)}${currentRow}`);
-                    rowRange.values = [rowData];
-                    
-                    // Apply special formatting for consolidated rows
-                    if (data._originalRowCount > 1) {
-                        // Highlight consolidated rows in light blue
-                        rowRange.format.fill.color = "#E3F2FD";
-                        
-                        // Make enrollment cost total column bold and yellow
-                        const costTotalColumn = newSheet.getRange(`${getExcelColumnName(enhancedHeaders.length - 1)}${currentRow}`);
-                        costTotalColumn.format.font.bold = true;
-                        costTotalColumn.format.fill.color = "#FFEB3B"; // Yellow for enrollment cost totals
-                    }
-                    
-                    currentRow++;
-                    totalRowsWritten++;
-                    
-                    // Sync periodically to avoid memory issues
-                    if (totalRowsWritten % 25 === 0) {
-                        await context.sync();
-                        debugLog(`Synced after ${totalRowsWritten} consolidated rows`);
-                    }
-                }
-                
-                // Final sync
-                await context.sync();
-                debugLog(`Total consolidated rows written: ${totalRowsWritten}`);
-                
-                // Step 7: Auto-fit columns
-                try {
-                    newSheet.getUsedRange().format.autofitColumns();
-                    await context.sync();
-                    debugLog('Columns auto-fitted successfully');
-                } catch (autofitError) {
-                    debugLog('Auto-fit failed, continuing anyway: ' + autofitError.message);
-                }
-                
-                // Step 8: Add summary section at the bottom
-                const summaryStartRow = currentRow + 2;
-                const summaryData = [
-                    ['PROCESSING SUMMARY', ''],
-                    ['Total Unique SSNs:', Object.keys(ssnGroups).length],
-                    ['Total Original Rows:', Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)],
-                    ['Total Consolidated Rows:', totalRowsWritten],
-                    ['Consolidation Ratio:', `${Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)}:${totalRowsWritten}`],
-                    ['Processing Date:', new Date().toLocaleDateString()],
-                    ['Processing Time:', new Date().toLocaleTimeString()]
-                ];
-                
-                for (let i = 0; i < summaryData.length; i++) {
-                    const summaryRange = newSheet.getRange(`A${summaryStartRow + i}:B${summaryStartRow + i}`);
-                    summaryRange.values = [summaryData[i]];
-                    
-                    if (i === 0) {
-                        // Format summary header
-                        summaryRange.format.font.bold = true;
-                        summaryRange.format.fill.color = "#4CAF50";
-                        summaryRange.format.font.color = "white";
-                    }
-                }
-                
-                await context.sync();
-                debugLog('Summary section added');
-                
-                // Step 9: Activate the new sheet
                 newSheet.activate();
-                await context.sync();
-                debugLog('Policy changes sheet activated');
-                
-            } catch (error) {
-                debugLog('Policy changes sheet creation failed: ' + error.message);
-                console.error('Policy changes sheet creation error:', error);
-                throw error;
-            }
-        }
-
-        async function createSummarySheet(context, processedData, ssnField, dateFields) {
-            try {
-                debugLog('Starting summary sheet creation...');
-                
-                // Delete existing sheet
-                const existingSheet = context.workbook.worksheets.getItemOrNullObject("Processing Summary");
-                await context.sync();
-                
-                if (!existingSheet.isNullObject) {
-                    existingSheet.delete();
-                    await context.sync();
-                    debugLog('Deleted existing summary sheet');
-                }
-                
-                // Create new sheet
-                const summarySheet = context.workbook.worksheets.add("Processing Summary");
-                await context.sync();
-                debugLog('New summary sheet created');
-                
-                // Calculate consolidation statistics
-                const totalOriginalRows = processedData.originalRowCount || 0;
-                const totalConsolidatedRows = processedData.matchingRows.length;
-                const totalSSNs = Object.keys(processedData.ssnGroups).length;
-                const consolidationRatio = totalOriginalRows > 0 ? (totalOriginalRows / totalConsolidatedRows).toFixed(2) : '0';
-                
-                // Calculate enrollment cost totals
-                let totalEnrollmentCost = 0;
-                let consolidatedRowsCount = 0;
-                
-                processedData.matchingRows.forEach(row => {
-                    if (row._totalEnrollmentCost) {
-                        totalEnrollmentCost += row._totalEnrollmentCost;
-                    }
-                    if (row._originalRowCount > 1) {
-                        consolidatedRowsCount++;
-                    }
-                });
-                
-                const summaryData = [
-                    ["Enrollment Data Processing Summary", ""],
-                    ["", ""],
-                    ["BASIC INFORMATION", ""],
-                    ["Policy Change Date", policyChangeDate.toLocaleDateString()],
-                    ["Selected SSN Field", ssnField],
-                    ["Date Fields Scanned", dateFields.map(f => f.name).join(", ")],
-                    ["", ""],
-                    ["DATA PROCESSING RESULTS", ""],
-                    ["Total Original Rows Found", totalOriginalRows],
-                    ["Total Consolidated Rows Created", totalConsolidatedRows],
-                    ["Unique SSNs Processed", totalSSNs],
-                    ["Consolidation Ratio", `${consolidationRatio}:1`],
-                    ["SSNs with Multiple Rows", consolidatedRowsCount],
-                    ["SSNs with Single Row", totalSSNs - consolidatedRowsCount],
-                    ["", ""],
-                    ["ENROLLMENT COST SUMMARY", ""],
-                    ["Total Enrollment Cost", `${totalEnrollmentCost.toFixed(2)}`],
-                    ["Average Cost per SSN", totalSSNs > 0 ? `${(totalEnrollmentCost / totalSSNs).toFixed(2)}` : '$0.00'],
-                    ["", ""],
-                    ["CONSOLIDATION LOGIC", ""],
-                    ["Rule 1", "All rows for SSN included if ANY date matches criteria"],
-                    ["Rule 2", "Duplicate field data removed, unique values combined"],
-                    ["Rule 3", "Only enrollment costs (under $2000) are summed per SSN"],
-                    ["Rule 4", "Date matches OR zero/null values trigger inclusion"],
-                    ["Rule 5", "Original SSN format preserved in output"],
-                    ["", ""],
-                    ["PROCESSING METADATA", ""],
-                    ["Processing Date", new Date().toLocaleDateString()],
-                    ["Processing Time", new Date().toLocaleTimeString()],
-                    ["Debug Mode", debugMode ? "Enabled" : "Disabled"]
-                ];
-                
-                // Write data row by row
-                for (let i = 0; i < summaryData.length; i++) {
-                    const rowRange = summarySheet.getRange(`A${i + 1}:B${i + 1}`);
-                    rowRange.values = [summaryData[i]];
-                    
-                    // Apply formatting based on content
-                    const content = summaryData[i][0];
-                    if (content === "Enrollment Data Processing Summary") {
-                        // Main title
-                        rowRange.merge();
-                        rowRange.format.font.bold = true;
-                        rowRange.format.font.size = 14;
-                        rowRange.format.fill.color = "#0078d4";
-                        rowRange.format.font.color = "white";
-                        rowRange.format.horizontalAlignment = "Center";
-                    } else if (content.includes("INFORMATION") || content.includes("RESULTS") || content.includes("SUMMARY") || content.includes("LOGIC") || content.includes("METADATA")) {
-                        // Section headers
-                        rowRange.format.font.bold = true;
-                        rowRange.format.fill.color = "#E3F2FD";
-                        rowRange.format.font.color = "#1976D2";
-                    } else if (content.startsWith("Rule")) {
-                        // Rule items
-                        rowRange.format.fill.color = "#F3E5F5";
-                        rowRange.format.font.color = "#7B1FA2";
-                    }
-                }
-                
-                await context.sync();
-                debugLog('Summary data written and formatted');
-                
-                // Auto-fit columns
-                summarySheet.getUsedRange().format.autofitColumns();
-                
-                await context.sync();
-                debugLog('Summary sheet formatted and completed');
-                
-            } catch (error) {
-                debugLog('Summary sheet creation failed: ' + error.message);
-                console.error('Summary sheet creation error:', error);
-                throw error;
-            }
-        }
-
-        function getExcelColumnName(columnNumber) {
-            let columnName = '';
-            while (columnNumber > 0) {
-                const remainder = (columnNumber - 1) % 26;
-                columnName = String.fromCharCode(65 + remainder) + columnName;
-                columnNumber = Math.floor((columnNumber - 1) / 26);
-            }
-            return columnName;
-        }
-
-        // Diagnostic functions for troubleshooting
-        async function runDiagnostics() {
-            debugLog('Running diagnostics...');
-            
-            try {
-                await Excel.run(async (context) => {
-                    const workbook = context.workbook;
-                    const worksheets = workbook.worksheets;
-                    worksheets.load("count");
-                    await context.sync();
-                    
-                    debugLog(`Excel context healthy. Sheet count: ${worksheets.count}`);
-                    
-                    // Test sheet creation
-                    const testSheet = worksheets.add("DiagnosticTest");
-                    await context.sync();
-                    
-                    const range = testSheet.getRange("A1");
-                    range.values = [["Test"]];
-                    await context.sync();
-                    
-                    testSheet.delete();
-                    await context.sync();
-                    
-                    debugLog('Diagnostic test passed - sheet operations working');
-                });
-            } catch (error) {
-                debugLog('Diagnostic test failed: ' + error.message);
-            }
-        }
-
-        // Memory monitoring
-        function logMemoryUsage() {
-            if (performance.memory) {
-                const memory = performance.memory;
-                debugLog(`Memory - Used: ${(memory.usedJSHeapSize / 1024 / 1024).toFixed(2)}MB, Total: ${(memory.totalJSHeapSize / 1024 / 1024).toFixed(2)}MB`);
-            }
-        }
-
-        // Add keyboard shortcut for diagnostics (Ctrl+Alt+D)
-        document.addEventListener('keydown', (event) => {
-            if (event.ctrlKey && event.altKey && event.key === 'd') {
-                event.preventDefault();
-                runDiagnostics();
-                logMemoryUsage();
-            }
+                return context.sync();
+            });
+        }).then(function() {
+            updateProgress(100);
+            showStatus('Processing complete!', 'success');
+            setTimeout(function() { updateProgress(0); }, 1000);
         });
-    </script>
+    }).catch(function(error) {
+        showStatus('Error: ' + error.message, 'error');
+        updateProgress(0);
+    });
+}
+</script>
+
 </body>
 </html>
-                
