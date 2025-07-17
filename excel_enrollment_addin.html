@@ -818,6 +818,16 @@
             return consolidatedRow;
         }
 
+        function getExcelColumnName(columnNumber) {
+            var columnName = '';
+            while (columnNumber > 0) {
+                var remainder = (columnNumber - 1) % 26;
+                columnName = String.fromCharCode(65 + remainder) + columnName;
+                columnNumber = Math.floor((columnNumber - 1) / 26);
+            }
+            return columnName;
+        }
+
         function processEnrollmentData() {
             try {
                 updateStepIndicators('process');
@@ -859,4 +869,227 @@
                     );
                     
                     updateProgress(50);
-                    debugLog('Processed data: ' + processedData.matchingRows.length + ' matching rows, ' + Object.keys(
+                    debugLog('Processed data: ' + processedData.matchingRows.length + ' matching rows, ' + Object.keys(processedData.ssnGroups).length + ' unique SSNs');
+                    
+                    // Create policy changes sheet
+                    return createPolicyChangesSheet(context, processedData.ssnGroups, detectedHeaders).then(function() {
+                        updateProgress(90);
+                        updateStepIndicators('completed');
+                        showStatus('Processing complete! Found ' + processedData.matchingRows.length + ' matching records across ' + Object.keys(processedData.ssnGroups).length + ' unique SSNs.', 'success');
+                        updateProgress(100);
+                        setTimeout(function() { updateProgress(0); }, 1000);
+                    });
+                }).catch(function(error) {
+                    showStatus('Error processing data: ' + error.message, 'error');
+                    debugLog('Processing error: ' + error.message);
+                    updateProgress(0);
+                }).finally(function() {
+                    processBtn.disabled = false;
+                    analyzeBtn.disabled = false;
+                });
+                
+            } catch (error) {
+                showStatus('Error processing data: ' + error.message, 'error');
+                debugLog('Processing error: ' + error.message);
+                updateProgress(0);
+                document.getElementById('processBtn').disabled = false;
+                document.getElementById('analyzeBtn').disabled = false;
+            }
+        }
+
+        function createPolicyChangesSheet(context, ssnGroups, originalHeaders) {
+            try {
+                debugLog('Starting policy changes sheet creation...');
+                
+                // Step 1: Delete existing sheet if present
+                var worksheets = context.workbook.worksheets;
+                var sheetName = "Policy Changes to Note";
+                
+                var existingSheet = worksheets.getItemOrNullObject(sheetName);
+                return context.sync().then(function() {
+                    if (!existingSheet.isNullObject) {
+                        existingSheet.delete();
+                        debugLog('Deleted existing policy changes sheet');
+                    }
+                    return context.sync();
+                }).then(function() {
+                    // Step 2: Create new sheet
+                    var newSheet = worksheets.add(sheetName);
+                    return context.sync().then(function() {
+                        debugLog('New policy changes sheet created');
+                        
+                        // Step 3: Handle empty data case
+                        if (Object.keys(ssnGroups).length === 0) {
+                            var noDataRange = newSheet.getRange("A1");
+                            noDataRange.values = [["No policy changes found for the specified date or zero/null values"]];
+                            noDataRange.format.font.bold = true;
+                            return context.sync().then(function() {
+                                debugLog('No data to write - created empty sheet message');
+                            });
+                        }
+                        
+                        // Step 4: Create enhanced headers with summary columns
+                        var enhancedHeaders = originalHeaders.slice(); // Copy array
+                        enhancedHeaders.push('CONSOLIDATED_ROWS');
+                        enhancedHeaders.push('TOTAL_ENROLLMENT_COST');
+                        enhancedHeaders.push('CONSOLIDATION_NOTES');
+                        
+                        // Write headers
+                        var headerRange = newSheet.getRange('A1:' + getExcelColumnName(enhancedHeaders.length) + '1');
+                        headerRange.values = [enhancedHeaders];
+                        headerRange.format.font.bold = true;
+                        headerRange.format.fill.color = "#0078d4";
+                        headerRange.format.font.color = "white";
+                        
+                        return context.sync().then(function() {
+                            debugLog('Enhanced headers written successfully');
+                            
+                            var currentRow = 2;
+                            var totalRowsWritten = 0;
+                            var consolidatedData = [];
+                            
+                            // Step 5: Process consolidated data (one row per SSN)
+                            for (var ssn in ssnGroups) {
+                                var rows = ssnGroups[ssn];
+                                var consolidatedRow = consolidateSSNRows(rows, originalHeaders);
+                                consolidatedData.push({
+                                    ssn: ssn,
+                                    data: consolidatedRow,
+                                    originalRows: rows
+                                });
+                            }
+                            
+                            debugLog('Processing ' + consolidatedData.length + ' consolidated SSN entries');
+                            
+                            // Step 6: Write data in chunks to avoid memory issues
+                            var chunkSize = 10;
+                            var chunks = [];
+                            for (var i = 0; i < consolidatedData.length; i += chunkSize) {
+                                chunks.push(consolidatedData.slice(i, i + chunkSize));
+                            }
+                            
+                            function writeNextChunk(chunkIndex) {
+                                if (chunkIndex >= chunks.length) {
+                                    // All chunks written, finish up
+                                    return finishSheet();
+                                }
+                                
+                                var chunk = chunks[chunkIndex];
+                                var chunkData = [];
+                                
+                                for (var j = 0; j < chunk.length; j++) {
+                                    var entry = chunk[j];
+                                    var data = entry.data;
+                                    
+                                    // Prepare row data for all original headers
+                                    var rowData = [];
+                                    for (var k = 0; k < originalHeaders.length; k++) {
+                                        var header = originalHeaders[k];
+                                        var value = data[header];
+                                        rowData.push((value !== undefined && value !== null) ? value : '');
+                                    }
+                                    
+                                    // Add summary columns
+                                    rowData.push(data._originalRowCount || 1);
+                                    rowData.push(data._totalEnrollmentCost ? data._totalEnrollmentCost.toFixed(2) : '0.00');
+                                    
+                                    // Create consolidation notes
+                                    var notes = '';
+                                    if (data._originalRowCount > 1) {
+                                        notes = 'Consolidated ' + data._originalRowCount + ' rows. ';
+                                        if (data._sumTotals && Object.keys(data._sumTotals).length > 0) {
+                                            var sumDetails = [];
+                                            for (var field in data._sumTotals) {
+                                                sumDetails.push(field + ': ' + data._sumTotals[field].toFixed(2));
+                                            }
+                                            notes += 'Sums: ' + sumDetails.join(', ');
+                                        }
+                                    } else {
+                                        notes = 'Single row - no consolidation needed';
+                                    }
+                                    rowData.push(notes);
+                                    
+                                    chunkData.push(rowData);
+                                }
+                                
+                                // Write the chunk
+                                var startRow = currentRow;
+                                var endRow = currentRow + chunkData.length - 1;
+                                var chunkRange = newSheet.getRange('A' + startRow + ':' + getExcelColumnName(enhancedHeaders.length) + endRow);
+                                chunkRange.values = chunkData;
+                                
+                                // Apply formatting for consolidated rows
+                                for (var m = 0; m < chunk.length; m++) {
+                                    var entry = chunk[m];
+                                    if (entry.data._originalRowCount > 1) {
+                                        var rowNum = startRow + m;
+                                        var rowRange = newSheet.getRange('A' + rowNum + ':' + getExcelColumnName(enhancedHeaders.length) + rowNum);
+                                        rowRange.format.fill.color = "#E3F2FD";
+                                        
+                                        // Highlight cost total
+                                        var costTotalRange = newSheet.getRange(getExcelColumnName(enhancedHeaders.length - 1) + rowNum);
+                                        costTotalRange.format.font.bold = true;
+                                        costTotalRange.format.fill.color = "#FFEB3B";
+                                    }
+                                }
+                                
+                                currentRow += chunkData.length;
+                                totalRowsWritten += chunkData.length;
+                                
+                                return context.sync().then(function() {
+                                    debugLog('Wrote chunk ' + (chunkIndex + 1) + ' of ' + chunks.length + ' (' + chunkData.length + ' rows)');
+                                    return writeNextChunk(chunkIndex + 1);
+                                });
+                            }
+                            
+                            function finishSheet() {
+                                // Step 7: Auto-fit columns
+                                try {
+                                    newSheet.getUsedRange().format.autofitColumns();
+                                } catch (autofitError) {
+                                    debugLog('Auto-fit failed, continuing anyway: ' + autofitError.message);
+                                }
+                                
+                                // Step 8: Add summary section
+                                var summaryStartRow = currentRow + 2;
+                                var summaryData = [
+                                    ['PROCESSING SUMMARY', ''],
+                                    ['Total Unique SSNs:', Object.keys(ssnGroups).length],
+                                    ['Total Original Rows:', Object.keys(ssnGroups).reduce(function(sum, ssn) { return sum + ssnGroups[ssn].length; }, 0)],
+                                    ['Total Consolidated Rows:', totalRowsWritten],
+                                    ['Processing Date:', new Date().toLocaleDateString()],
+                                    ['Processing Time:', new Date().toLocaleTimeString()]
+                                ];
+                                
+                                var summaryRange = newSheet.getRange('A' + summaryStartRow + ':B' + (summaryStartRow + summaryData.length - 1));
+                                summaryRange.values = summaryData;
+                                
+                                // Format summary header
+                                var summaryHeaderRange = newSheet.getRange('A' + summaryStartRow + ':B' + summaryStartRow);
+                                summaryHeaderRange.format.font.bold = true;
+                                summaryHeaderRange.format.fill.color = "#4CAF50";
+                                summaryHeaderRange.format.font.color = "white";
+                                
+                                // Step 9: Activate the new sheet
+                                newSheet.activate();
+                                
+                                return context.sync().then(function() {
+                                    debugLog('Policy changes sheet completed with ' + totalRowsWritten + ' rows');
+                                });
+                            }
+                            
+                            // Start writing chunks
+                            return writeNextChunk(0);
+                        });
+                    });
+                });
+                
+            } catch (error) {
+                debugLog('Policy changes sheet creation failed: ' + error.message);
+                console.error('Policy changes sheet creation error:', error);
+                throw error;
+            }
+        }
+    </script>
+</body>
+</html>
