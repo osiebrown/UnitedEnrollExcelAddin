@@ -312,217 +312,551 @@
         <div id="debugInfo" class="debug-info" style="display: none;"></div>
     </div>
 
-<script>
-var detectedHeaders = [];
-var currentSheetData = [];
-var selectedSSNFields = [];
-var selectedCostFields = [];
-var detectedDateFields = [];
-var detectedCostFields = [];
-var policyChangeDate = null;
-var debugMode = false;
+    <script>
+        // Global variables
+        var detectedHeaders = [];
+        var currentSheetData = [];
+        var selectedSSNFields = [];
+        var selectedCostFields = [];
+        var detectedDateFields = [];
+        var detectedCostFields = [];
+        var policyChangeDate = null;
+        var debugMode = false;
 
-Office.onReady(function() {
-    console.log('Add-in initialized');
-    var today = new Date();
-    document.getElementById('policyDate').value = today.toISOString().split('T')[0];
-    var urlParams = new URLSearchParams(window.location.search);
-    debugMode = urlParams.get('debug') === 'true';
-    if (debugMode) {
-        document.getElementById('debugInfo').style.display = 'block';
-    }
-});
-
-function debugLog(message) {
-    var timestamp = new Date().toLocaleTimeString();
-    console.log('[' + timestamp + '] ' + message);
-    if (debugMode) {
-        var debugDiv = document.getElementById('debugInfo');
-        debugDiv.innerHTML += '<div>[' + timestamp + '] ' + message + '</div>';
-    }
-}
-
-function showStatus(message, type) {
-    type = type || 'info';
-    var statusDiv = document.getElementById('status');
-    statusDiv.textContent = message;
-    statusDiv.className = 'status ' + type;
-    statusDiv.style.display = 'block';
-}
-
-function updateProgress(percentage) {
-    var progressContainer = document.getElementById('progressContainer');
-    var progressBar = document.getElementById('progressBar');
-    if (percentage > 0) {
-        progressContainer.style.display = 'block';
-        progressBar.style.width = percentage + '%';
-    } else {
-        progressContainer.style.display = 'none';
-    }
-}
-
-function detectFields(headers) {
-    var ssnFields = [];
-    var dateFields = [];
-    var costFields = [];
-    
-    for (var i = 0; i < headers.length; i++) {
-        var header = headers[i];
-        if (typeof header === 'string') {
-            var headerLower = header.toLowerCase();
-            if (headerLower.includes('ssn') || headerLower.includes('social security')) {
-                ssnFields.push({ name: header, index: i });
+        // Initialize when Office is ready
+        Office.onReady(function() {
+            console.log('Add-in initialized');
+            debugLog('Add-in initialized successfully');
+            updateStepIndicators('none');
+            
+            // Set today's date as default
+            var today = new Date();
+            document.getElementById('policyDate').value = today.toISOString().split('T')[0];
+            
+            // Enable debug mode if URL parameter is set
+            var urlParams = new URLSearchParams(window.location.search);
+            debugMode = urlParams.get('debug') === 'true';
+            if (debugMode) {
+                document.getElementById('debugInfo').style.display = 'block';
+                debugLog('Debug mode enabled');
             }
-            if (headerLower.includes('date') || headerLower.includes('enrolled')) {
-                dateFields.push({ name: header, index: i });
-            }
-            if (headerLower.includes('cost') || headerLower.includes('amount') || headerLower.includes('fee') || headerLower.includes('price')) {
-                costFields.push({ name: header, index: i });
+        });
+
+        function debugLog(message) {
+            var timestamp = new Date().toLocaleTimeString();
+            console.log('[' + timestamp + '] ' + message);
+            
+            if (debugMode) {
+                var debugDiv = document.getElementById('debugInfo');
+                debugDiv.innerHTML += '<div>[' + timestamp + '] ' + message + '</div>';
+                debugDiv.scrollTop = debugDiv.scrollHeight;
             }
         }
-    }
-    
-    return { ssnFields: ssnFields, dateFields: dateFields, costFields: costFields };
-}
 
-function createFieldCheckboxes(fields, containerId, fieldType) {
-    var container = document.getElementById(containerId);
-    container.innerHTML = '';
-    
-    if (fields.length === 0) {
-        container.innerHTML = '<div style="color: #6c757d;">No ' + fieldType + ' fields detected</div>';
-        return;
-    }
-    
-    for (var i = 0; i < fields.length; i++) {
-        var field = fields[i];
-        var checkboxDiv = document.createElement('div');
-        checkboxDiv.className = 'field-checkbox highlighted';
-        
-        var checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.id = fieldType + '_' + i;
-        checkbox.value = field.name;
-        checkbox.checked = (fieldType === 'ssn' && i === 0);
-        checkbox.addEventListener('change', updateSelectedFields);
-        
-        var label = document.createElement('label');
-        label.htmlFor = fieldType + '_' + i;
-        label.textContent = field.name;
-        
-        checkboxDiv.appendChild(checkbox);
-        checkboxDiv.appendChild(label);
-        container.appendChild(checkboxDiv);
-    }
-}
-
-function updateSelectedFields() {
-    selectedSSNFields = [];
-    selectedCostFields = [];
-    
-    var ssnCheckboxes = document.querySelectorAll('#ssnFieldCheckboxes input[type="checkbox"]:checked');
-    for (var i = 0; i < ssnCheckboxes.length; i++) {
-        selectedSSNFields.push(ssnCheckboxes[i].value);
-    }
-    
-    var costCheckboxes = document.querySelectorAll('#costFieldCheckboxes input[type="checkbox"]:checked');
-    for (var i = 0; i < costCheckboxes.length; i++) {
-        selectedCostFields.push(costCheckboxes[i].value);
-    }
-    
-    var processBtn = document.getElementById('processBtn');
-    var isValid = selectedSSNFields.length === 1;
-    processBtn.disabled = !isValid;
-    
-    if (isValid) {
-        showStatus('Ready to process with ' + selectedSSNFields[0], 'success');
-    } else {
-        showStatus('Please select exactly one SSN field', 'error');
-    }
-}
-
-function analyzeCurrentSheet() {
-    var dateInput = document.getElementById('policyDate');
-    if (!dateInput.value) {
-        showStatus('Please select a policy change date first', 'error');
-        return;
-    }
-    
-    policyChangeDate = new Date(dateInput.value);
-    showStatus('Analyzing current sheet...', 'info');
-    updateProgress(25);
-    
-    Excel.run(function(context) {
-        var worksheet = context.workbook.worksheets.getActiveWorksheet();
-        var usedRange = worksheet.getUsedRange();
-        usedRange.load("values");
-        
-        return context.sync().then(function() {
-            var data = usedRange.values;
-            currentSheetData = data;
-            detectedHeaders = data[0];
+        function updateStepIndicators(currentStep) {
+            var step1 = document.getElementById('step1Indicator');
+            var step2 = document.getElementById('step2Indicator');
             
-            var fieldResults = detectFields(detectedHeaders);
-            detectedDateFields = fieldResults.dateFields;
-            detectedCostFields = fieldResults.costFields;
+            // Reset classes
+            step1.className = 'step';
+            step2.className = 'step';
             
-            createFieldCheckboxes(fieldResults.ssnFields, 'ssnFieldCheckboxes', 'ssn');
-            createFieldCheckboxes(fieldResults.costFields, 'costFieldCheckboxes', 'cost');
-            
-            var dateFieldsList = document.getElementById('dateFieldsList');
-            dateFieldsList.textContent = fieldResults.dateFields.map(function(f) { return f.name; }).join(', ');
-            
-            document.getElementById('fieldSelection').style.display = 'block';
-            updateSelectedFields();
-            updateProgress(100);
-            setTimeout(function() { updateProgress(0); }, 1000);
-        });
-    }).catch(function(error) {
-        showStatus('Error: ' + error.message, 'error');
-        updateProgress(0);
-    });
-}
-
-function processEnrollmentData() {
-    if (selectedSSNFields.length !== 1) {
-        showStatus('Please select exactly one SSN field', 'error');
-        return;
-    }
-    
-    showStatus('Processing data...', 'info');
-    updateProgress(50);
-    
-    Excel.run(function(context) {
-        var worksheets = context.workbook.worksheets;
-        var sheetName = "Policy Changes to Note";
-        
-        var existingSheet = worksheets.getItemOrNullObject(sheetName);
-        return context.sync().then(function() {
-            if (!existingSheet.isNullObject) {
-                existingSheet.delete();
+            if (currentStep === 'analyze') {
+                step1.className = 'step active';
+            } else if (currentStep === 'process') {
+                step1.className = 'step completed';
+                step2.className = 'step active';
+            } else if (currentStep === 'completed') {
+                step1.className = 'step completed';
+                step2.className = 'step completed';
             }
-            return context.sync();
-        }).then(function() {
-            var newSheet = worksheets.add(sheetName);
-            return context.sync().then(function() {
-                var headerRange = newSheet.getRange("A1:D1");
-                headerRange.values = [["SSN", "Data", "Cost Total", "Notes"]];
-                headerRange.format.font.bold = true;
-                
-                newSheet.activate();
-                return context.sync();
-            });
-        }).then(function() {
-            updateProgress(100);
-            showStatus('Processing complete!', 'success');
-            setTimeout(function() { updateProgress(0); }, 1000);
-        });
-    }).catch(function(error) {
-        showStatus('Error: ' + error.message, 'error');
-        updateProgress(0);
-    });
-}
-</script>
+        }
 
-</body>
-</html>
+        function showStatus(message, type) {
+            type = type || 'info';
+            var statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = 'status ' + type;
+            statusDiv.style.display = 'block';
+            debugLog('Status: ' + type.toUpperCase() + ' - ' + message);
+        }
+
+        function updateProgress(percentage) {
+            var progressContainer = document.getElementById('progressContainer');
+            var progressBar = document.getElementById('progressBar');
+            
+            if (percentage > 0) {
+                progressContainer.style.display = 'block';
+                progressBar.style.width = percentage + '%';
+            } else {
+                progressContainer.style.display = 'none';
+            }
+        }
+
+        function detectFields(headers) {
+            var ssnFields = [];
+            var dateFields = [];
+            var costFields = [];
+            
+            for (var i = 0; i < headers.length; i++) {
+                var header = headers[i];
+                if (typeof header === 'string') {
+                    var headerLower = header.toLowerCase();
+                    
+                    // Detect SSN fields
+                    if (headerLower.includes('ssn') || 
+                        headerLower.includes('social security') ||
+                        headerLower.includes('employee ssn')) {
+                        ssnFields.push({ name: header, index: i });
+                    }
+                    
+                    // Detect date fields
+                    if (headerLower.includes('date') || 
+                        headerLower.includes('dob') ||
+                        headerLower.includes('enrolled') ||
+                        headerLower.includes('hire') ||
+                        headerLower.includes('start') ||
+                        headerLower.includes('effective') ||
+                        headerLower.includes('created') ||
+                        headerLower.includes('modified')) {
+                        dateFields.push({ name: header, index: i });
+                    }
+                    
+                    // Detect cost fields
+                    if (headerLower.includes('cost') || 
+                        headerLower.includes('amount') ||
+                        headerLower.includes('fee') ||
+                        headerLower.includes('price') ||
+                        headerLower.includes('premium') ||
+                        headerLower.includes('enrollment')) {
+                        costFields.push({ name: header, index: i });
+                    }
+                }
+            }
+            
+            debugLog('Detected ' + ssnFields.length + ' SSN fields, ' + dateFields.length + ' date fields, ' + costFields.length + ' cost fields');
+            return { ssnFields: ssnFields, dateFields: dateFields, costFields: costFields };
+        }
+
+        function createFieldCheckboxes(fields, containerId, fieldType) {
+            var container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            if (fields.length === 0) {
+                container.innerHTML = '<div style="color: #6c757d; font-style: italic;">No ' + fieldType + ' fields detected</div>';
+                return;
+            }
+            
+            for (var i = 0; i < fields.length; i++) {
+                var field = fields[i];
+                var checkboxDiv = document.createElement('div');
+                checkboxDiv.className = 'field-checkbox highlighted';
+                
+                var checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = fieldType + '_' + i;
+                checkbox.value = field.name;
+                checkbox.checked = (fieldType === 'ssn' && i === 0); // Only check first SSN field by default
+                checkbox.addEventListener('change', updateSelectedFields);
+                
+                var label = document.createElement('label');
+                label.htmlFor = fieldType + '_' + i;
+                label.textContent = field.name;
+                
+                checkboxDiv.appendChild(checkbox);
+                checkboxDiv.appendChild(label);
+                container.appendChild(checkboxDiv);
+            }
+        }
+
+        function updateSelectedFields() {
+            selectedSSNFields = [];
+            selectedCostFields = [];
+            
+            // Get selected SSN fields
+            var ssnCheckboxes = document.querySelectorAll('#ssnFieldCheckboxes input[type="checkbox"]:checked');
+            for (var i = 0; i < ssnCheckboxes.length; i++) {
+                selectedSSNFields.push(ssnCheckboxes[i].value);
+            }
+            
+            // Get selected cost fields
+            var costCheckboxes = document.querySelectorAll('#costFieldCheckboxes input[type="checkbox"]:checked');
+            for (var i = 0; i < costCheckboxes.length; i++) {
+                selectedCostFields.push(costCheckboxes[i].value);
+            }
+            
+            // Validate selection
+            var processBtn = document.getElementById('processBtn');
+            if (selectedSSNFields.length === 1) {
+                processBtn.disabled = false;
+                var message = 'Ready to process with SSN field: ' + selectedSSNFields[0];
+                if (selectedCostFields.length > 0) {
+                    message += ' and ' + selectedCostFields.length + ' cost field(s)';
+                }
+                showStatus(message, 'success');
+            } else if (selectedSSNFields.length === 0) {
+                processBtn.disabled = true;
+                showStatus('Please select exactly one SSN field to continue', 'error');
+            } else {
+                processBtn.disabled = true;
+                showStatus('Please select only one SSN field. Multiple SSN fields are not supported.', 'error');
+            }
+        }
+
+        function analyzeCurrentSheet() {
+            try {
+                // Validate date input
+                var dateInput = document.getElementById('policyDate');
+                if (!dateInput.value) {
+                    showStatus('Please select a policy change date first', 'error');
+                    return;
+                }
+                
+                policyChangeDate = new Date(dateInput.value);
+                debugLog('Policy change date set to: ' + policyChangeDate.toLocaleDateString());
+                
+                updateStepIndicators('analyze');
+                showStatus('Analyzing current sheet...', 'info');
+                updateProgress(25);
+                
+                var analyzeBtn = document.getElementById('analyzeBtn');
+                analyzeBtn.disabled = true;
+                
+                Excel.run(function(context) {
+                    var worksheet = context.workbook.worksheets.getActiveWorksheet();
+                    var usedRange = worksheet.getUsedRange();
+                    
+                    if (!usedRange) {
+                        showStatus('No data found in the current sheet', 'error');
+                        return Promise.resolve();
+                    }
+                    
+                    usedRange.load("values");
+                    return context.sync().then(function() {
+                        var data = usedRange.values;
+                        if (data.length === 0) {
+                            showStatus('No data found in the current sheet', 'error');
+                            return;
+                        }
+                        
+                        updateProgress(50);
+                        
+                        // Store data for later processing
+                        currentSheetData = data;
+                        detectedHeaders = data[0];
+                        debugLog('Loaded ' + data.length + ' rows with ' + detectedHeaders.length + ' columns');
+                        
+                        // Analyze headers
+                        var fieldResults = detectFields(detectedHeaders);
+                        detectedDateFields = fieldResults.dateFields;
+                        detectedCostFields = fieldResults.costFields;
+                        
+                        updateProgress(75);
+                        
+                        // Create field selection interface
+                        createFieldCheckboxes(fieldResults.ssnFields, 'ssnFieldCheckboxes', 'ssn');
+                        createFieldCheckboxes(fieldResults.costFields, 'costFieldCheckboxes', 'cost');
+                        
+                        var dateFieldsList = document.getElementById('dateFieldsList');
+                        dateFieldsList.textContent = fieldResults.dateFields.length > 0 ? 
+                            fieldResults.dateFields.map(function(f) { return f.name; }).join(', ') : 
+                            'None detected';
+                        
+                        // Show field selection
+                        document.getElementById('fieldSelection').style.display = 'block';
+                        
+                        // Initialize selected fields
+                        updateSelectedFields();
+                        
+                        updateProgress(100);
+                        setTimeout(function() { updateProgress(0); }, 1000);
+                    });
+                }).then(function() {
+                    analyzeBtn.disabled = false;
+                }).catch(function(error) {
+                    showStatus('Error analyzing sheet: ' + error.message, 'error');
+                    debugLog('Analysis error: ' + error.message);
+                    updateProgress(0);
+                    analyzeBtn.disabled = false;
+                });
+                
+            } catch (error) {
+                showStatus('Error analyzing sheet: ' + error.message, 'error');
+                debugLog('Analysis error: ' + error.message);
+                updateProgress(0);
+                document.getElementById('analyzeBtn').disabled = false;
+            }
+        }
+
+        function isDateMatch(dateValue, targetDate) {
+            if (!dateValue || !targetDate) return false;
+            
+            var date;
+            if (typeof dateValue === 'string') {
+                date = new Date(dateValue);
+            } else if (typeof dateValue === 'number') {
+                // Excel serial date number
+                date = new Date((dateValue - 25569) * 86400 * 1000);
+            } else if (dateValue instanceof Date) {
+                date = dateValue;
+            } else {
+                return false;
+            }
+            
+            if (isNaN(date.getTime())) return false;
+            
+            // Compare only the date part (ignore time)
+            return date.toDateString() === targetDate.toDateString();
+        }
+
+        function isZeroOrNull(value) {
+            return value === null || 
+                   value === undefined || 
+                   value === '' || 
+                   value === 0 || 
+                   (typeof value === 'string' && value.trim() === '') ||
+                   (typeof value === 'string' && value.trim() === '0');
+        }
+
+        function formatSSN(ssn) {
+            if (!ssn) return '';
+            
+            // Handle different SSN formats and preserve as string
+            var ssnStr = ssn.toString().replace(/\D/g, '');
+            
+            if (ssnStr.length === 9) {
+                return ssnStr.substring(0, 3) + '-' + ssnStr.substring(3, 5) + '-' + ssnStr.substring(5);
+            }
+            
+            return ssn.toString();
+        }
+
+        function isDollarValue(value, fieldName) {
+            // Check if this field is selected as a cost field
+            if (selectedCostFields.indexOf(fieldName) === -1) {
+                return false;
+            }
+            
+            if (typeof value !== 'number') {
+                // Try to parse as number if it's a string
+                if (typeof value === 'string') {
+                    var cleanValue = value.replace(/[$,]/g, '');
+                    var parsed = parseFloat(cleanValue);
+                    if (!isNaN(parsed)) {
+                        value = parsed;
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            return value >= 0 && value < 50000; // Reasonable range for enrollment costs
+        }
+
+        function processDataBySSN(data, headers, ssnField, dateFields, targetDate) {
+            var ssnGroups = {};
+            var consolidatedRows = [];
+            var dateMatchCount = 0;
+            var zeroNullMatchCount = 0;
+            var matchingSSNs = new Set();
+            
+            // Find SSN column index
+            var ssnIndex = headers.indexOf(ssnField);
+            if (ssnIndex === -1) {
+                throw new Error('SSN field "' + ssnField + '" not found in headers');
+            }
+            
+            debugLog('Processing ' + (data.length - 1) + ' data rows (excluding header)');
+            
+            // First pass: Find all SSNs that have matching dates or zero/null values
+            for (var i = 1; i < data.length; i++) {
+                var row = data[i];
+                var ssn = formatSSN(row[ssnIndex]);
+                if (!ssn) continue;
+                
+                // Check if any date field matches the target date OR is zero/null
+                var hasMatchingDate = false;
+                var hasZeroOrNull = false;
+                
+                for (var j = 0; j < dateFields.length; j++) {
+                    var dateField = dateFields[j];
+                    var dateIndex = headers.indexOf(dateField.name);
+                    if (dateIndex !== -1) {
+                        var dateValue = row[dateIndex];
+                        
+                        // Check for exact date match
+                        if (isDateMatch(dateValue, targetDate)) {
+                            hasMatchingDate = true;
+                            dateMatchCount++;
+                            break;
+                        }
+                        
+                        // Check for zero or null
+                        if (isZeroOrNull(dateValue)) {
+                            hasZeroOrNull = true;
+                            zeroNullMatchCount++;
+                        }
+                    }
+                }
+                
+                if (hasMatchingDate || hasZeroOrNull) {
+                    matchingSSNs.add(ssn);
+                }
+            }
+            
+            debugLog('Found ' + matchingSSNs.size + ' SSNs with matching criteria');
+            
+            // Second pass: Collect ALL rows for matching SSNs
+            for (var i = 1; i < data.length; i++) {
+                var row = data[i];
+                var ssn = formatSSN(row[ssnIndex]);
+                if (!ssn) continue;
+                
+                // If this SSN had any matching dates, include ALL rows for this SSN
+                if (matchingSSNs.has(ssn)) {
+                    if (!ssnGroups[ssn]) {
+                        ssnGroups[ssn] = [];
+                    }
+                    
+                    var processedRow = {};
+                    for (var k = 0; k < headers.length; k++) {
+                        processedRow[headers[k]] = row[k];
+                    }
+                    
+                    ssnGroups[ssn].push(processedRow);
+                }
+            }
+            
+            // Third pass: Consolidate rows by SSN into unique field data
+            for (var ssn in ssnGroups) {
+                var consolidatedRow = consolidateSSNRows(ssnGroups[ssn], headers);
+                consolidatedRows.push(consolidatedRow);
+            }
+            
+            debugLog('Consolidated ' + Object.keys(ssnGroups).length + ' SSNs into ' + consolidatedRows.length + ' unique rows');
+            debugLog('Found ' + dateMatchCount + ' date matches and ' + zeroNullMatchCount + ' zero/null matches');
+            
+            var originalRowCount = 0;
+            for (var ssn in ssnGroups) {
+                originalRowCount += ssnGroups[ssn].length;
+            }
+            
+            return { 
+                ssnGroups: ssnGroups, 
+                matchingRows: consolidatedRows,
+                originalRowCount: originalRowCount
+            };
+        }
+
+        function consolidateSSNRows(rows, headers) {
+            if (rows.length === 0) return {};
+            if (rows.length === 1) return rows[0];
+            
+            var consolidatedRow = {};
+            var sumTotals = {};
+            var totalEnrollmentCost = 0;
+            
+            // Process each header/field
+            for (var i = 0; i < headers.length; i++) {
+                var header = headers[i];
+                var values = [];
+                
+                for (var j = 0; j < rows.length; j++) {
+                    var val = rows[j][header];
+                    if (val !== null && val !== undefined && val !== '') {
+                        values.push(val);
+                    }
+                }
+                
+                if (values.length === 0) {
+                    consolidatedRow[header] = '';
+                    continue;
+                }
+                
+                // Check if this field contains dollar values that should be summed
+                var dollarValues = [];
+                for (var k = 0; k < values.length; k++) {
+                    if (isDollarValue(values[k], header)) {
+                        dollarValues.push(values[k]);
+                    }
+                }
+                
+                if (dollarValues.length > 0) {
+                    var sum = 0;
+                    for (var l = 0; l < dollarValues.length; l++) {
+                        sum += parseFloat(dollarValues[l]);
+                    }
+                    sumTotals[header] = sum;
+                    totalEnrollmentCost += sum;
+                    consolidatedRow[header] = sum.toFixed(2);
+                } else {
+                    // Get unique values only
+                    var uniqueValues = [];
+                    for (var m = 0; m < values.length; m++) {
+                        var stringVal = values[m] instanceof Date ? values[m].toLocaleDateString() : String(values[m]);
+                        if (uniqueValues.indexOf(stringVal) === -1) {
+                            uniqueValues.push(stringVal);
+                        }
+                    }
+                    
+                    if (uniqueValues.length === 1) {
+                        consolidatedRow[header] = uniqueValues[0];
+                    } else {
+                        // Multiple unique values - combine them
+                        consolidatedRow[header] = uniqueValues.join(' | ');
+                    }
+                }
+            }
+            
+            // Add summary information
+            consolidatedRow._isConsolidated = true;
+            consolidatedRow._originalRowCount = rows.length;
+            consolidatedRow._totalEnrollmentCost = totalEnrollmentCost;
+            consolidatedRow._sumTotals = sumTotals;
+            
+            return consolidatedRow;
+        }
+
+        function processEnrollmentData() {
+            try {
+                updateStepIndicators('process');
+                showStatus('Processing enrollment data...', 'info');
+                updateProgress(10);
+                
+                var processBtn = document.getElementById('processBtn');
+                var analyzeBtn = document.getElementById('analyzeBtn');
+                processBtn.disabled = true;
+                analyzeBtn.disabled = true;
+                
+                if (currentSheetData.length === 0) {
+                    showStatus('No data to process. Please run Step 1: Analyze first.', 'error');
+                    return;
+                }
+                
+                if (selectedSSNFields.length !== 1) {
+                    showStatus('Please select exactly one SSN field.', 'error');
+                    return;
+                }
+                
+                if (!policyChangeDate) {
+                    showStatus('Please select a policy change date.', 'error');
+                    return;
+                }
+                
+                debugLog('Starting data processing...');
+                
+                Excel.run(function(context) {
+                    updateProgress(25);
+                    
+                    // Process data
+                    var processedData = processDataBySSN(
+                        currentSheetData, 
+                        detectedHeaders, 
+                        selectedSSNFields[0], 
+                        detectedDateFields, 
+                        policyChangeDate
+                    );
+                    
+                    updateProgress(50);
+                    debugLog('Processed data: ' + processedData.matchingRows.length + ' matching rows, ' + Object.keys(
