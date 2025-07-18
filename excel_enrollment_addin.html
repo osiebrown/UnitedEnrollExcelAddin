@@ -333,8 +333,8 @@
         });
 
         Office.onReady(() => {
-            console.log('Add-in initialized');
-            debugLog('Add-in initialized successfully');
+            console.log('Add-in initialized - Version 2.1 - Cache Buster: ' + Date.now());
+            debugLog('Add-in initialized successfully - Version 2.1');
             updateStepIndicators('none');
             
             // Set today's date as default
@@ -346,7 +346,7 @@
             debugMode = urlParams.get('debug') === 'true' || true; // Force debug mode for now
             if (debugMode) {
                 document.getElementById('debugInfo').style.display = 'block';
-                debugLog('Debug mode enabled');
+                debugLog('Debug mode enabled - Version 2.1');
             }
         });
 
@@ -808,6 +808,7 @@
                 throw new Error(`SSN field "${ssnField}" not found in headers`);
             }
             
+            debugLog(`=== PROCESSING VERSION 2.1 - ALL ROWS ===`);
             debugLog(`Processing ${data.length - 1} data rows (excluding header)`);
             debugLog(`Target date for matching: ${targetDate.toLocaleDateString()}`);
             debugLog(`Date fields to check: ${dateFields.map(f => f.name).join(', ')}`);
@@ -834,6 +835,7 @@
             debugLog('=== END SAMPLE DATA ===');
             
             // Process ALL rows - detailed logging for first 5, minimal for rest
+            debugLog('=== STARTING FULL ROW PROCESSING ===');
             for (let i = 1; i < data.length; i++) {
                 const row = data[i];
                 const ssn = formatSSN(row[ssnIndex]);
@@ -846,7 +848,7 @@
                 let hasMatchingDate = false;
                 let hasZeroOrNull = false;
                 
-                if (i <= 5) debugLog(`Row ${i}: Checking SSN ${ssn}`);
+                if (i <= 5 || i % 5 === 0) debugLog(`Row ${i}: Checking SSN ${ssn}`);
                 
                 for (const dateField of dateFields) {
                     const dateIndex = headers.indexOf(dateField.name);
@@ -884,10 +886,13 @@
                 }
             }
             
+            debugLog(`=== COMPLETED PROCESSING ALL ${data.length - 1} ROWS ===`);
             debugLog(`Found ${matchingSSNs.size} SSNs with matching criteria`);
             debugLog(`Date matches: ${dateMatchCount}, Zero/null matches: ${zeroNullMatchCount}`);
+            debugLog(`Matching SSNs: ${Array.from(matchingSSNs).join(', ')}`);
             
             // Second pass: Collect ALL rows for matching SSNs
+            debugLog('=== COLLECTING ALL ROWS FOR MATCHING SSNs ===');
             for (let i = 1; i < data.length; i++) {
                 const row = data[i];
                 const ssn = formatSSN(row[ssnIndex]);
@@ -897,6 +902,7 @@
                 if (matchingSSNs.has(ssn)) {
                     if (!ssnGroups[ssn]) {
                         ssnGroups[ssn] = [];
+                        debugLog(`  Creating group for SSN: ${ssn}`);
                     }
                     
                     const processedRow = {};
@@ -905,16 +911,21 @@
                     });
                     
                     ssnGroups[ssn].push(processedRow);
+                    debugLog(`  Added row ${i} to SSN ${ssn} group (total rows for this SSN: ${ssnGroups[ssn].length})`);
                 }
             }
             
             // Third pass: Consolidate rows by SSN into unique field data
+            debugLog('=== CONSOLIDATING ROWS BY SSN ===');
             for (const [ssn, rows] of Object.entries(ssnGroups)) {
+                debugLog(`  Consolidating ${rows.length} rows for SSN ${ssn}`);
                 const consolidatedRow = consolidateSSNRows(rows, headers);
                 consolidatedRows.push(consolidatedRow);
             }
             
+            debugLog(`=== FINAL RESULTS ===`);
             debugLog(`Consolidated ${Object.keys(ssnGroups).length} SSNs into ${consolidatedRows.length} unique rows`);
+            debugLog(`Total original rows collected: ${Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)}`);
             debugLog(`Found ${dateMatchCount} date matches and ${zeroNullMatchCount} zero/null matches`);
             
             return { 
