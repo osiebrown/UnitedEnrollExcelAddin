@@ -296,6 +296,7 @@
                     <li>Dollar amounts will be summed across all rows per SSN</li>
                     <li><strong>NEW:</strong> Plan/coverage fields show individual costs as "Plan Name ($Cost) | Plan Name ($Cost)"</li>
                     <li><strong>FIXED:</strong> Date fields maintain proper Excel date formatting</li>
+                    <li><strong>DEBUG:</strong> Add ?debug=true to URL to enable detailed logging</li>
                 </ul>
             </div>
         </div>
@@ -341,9 +342,9 @@
             const today = new Date();
             document.getElementById('policyDate').value = today.toISOString().split('T')[0];
             
-            // Enable debug mode by adding ?debug=true to URL OR always show debug for troubleshooting
+            // Enable debug mode by adding ?debug=true to URL
             const urlParams = new URLSearchParams(window.location.search);
-            debugMode = urlParams.get('debug') === 'true' || true; // Force debug mode for now
+            debugMode = urlParams.get('debug') === 'true'; // Only enable with URL parameter
             if (debugMode) {
                 document.getElementById('debugInfo').style.display = 'block';
                 debugLog('Debug mode enabled - Version 2.1');
