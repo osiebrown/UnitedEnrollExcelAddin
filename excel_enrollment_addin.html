@@ -294,7 +294,7 @@
                     <li>If ANY row for an SSN matches criteria, ALL rows for that SSN will be included</li>
                     <li>Multiple rows per SSN will be consolidated into ONE row with unique data</li>
                     <li>Dollar amounts will be summed across all rows per SSN</li>
-                    <li><strong>NEW:</strong> Plan fields show individual costs as "Plan Name ($Cost) | Plan Name ($Cost)"</li>
+                    <li><strong>NEW:</strong> Plan/coverage fields show individual costs as "Plan Name ($Cost) | Plan Name ($Cost)"</li>
                 </ul>
             </div>
         </div>
@@ -626,6 +626,44 @@
             return value > 0 && value < 10000; // Increased threshold for dollar values
         }
 
+        function isPlanField(header) {
+            const headerLower = header.toLowerCase();
+            
+            // Exclude user personal information fields
+            const excludeKeywords = ['employee', 'member', 'user', 'person', 'first', 'last', 'full', 
+                                   'address', 'street', 'city', 'state', 'zip', 'phone', 'email', 
+                                   'ssn', 'social', 'id', 'number', 'birth', 'age', 'gender',
+                                   'department', 'title', 'position', 'hire', 'start', 'end',
+                                   'salary', 'wage', 'payroll', 'tax'];
+            
+            // Check if this is an excluded field
+            for (const exclude of excludeKeywords) {
+                if (headerLower.includes(exclude)) {
+                    return false;
+                }
+            }
+            
+            // Include actual plan/coverage fields
+            const planKeywords = ['plan', 'coverage', 'benefit', 'option', 'type', 'product', 
+                                'insurance', 'medical', 'dental', 'vision', 'life', 'disability',
+                                'health', 'wellness', 'prescription', 'drug', 'pharmacy'];
+            
+            for (const keyword of planKeywords) {
+                if (headerLower.includes(keyword)) {
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        function isCostField(header) {
+            const headerLower = header.toLowerCase();
+            return headerLower.includes('cost') || headerLower.includes('amount') || 
+                   headerLower.includes('fee') || headerLower.includes('price') || 
+                   headerLower.includes('premium') || headerLower.includes('rate');
+        }
+
         function processDataBySSN(data, headers, ssnField, dateFields, targetDate) {
             const ssnGroups = {};
             const consolidatedRows = [];
@@ -722,21 +760,15 @@
             const consolidatedRow = {};
             const sumTotals = {};
             let totalDollarAmount = 0;
-            const planCostMappings = {}; // Track plan names with their costs
             
             // First pass: identify cost fields and plan fields
             const costFields = [];
             const planFields = [];
             
             headers.forEach(header => {
-                const headerLower = header.toLowerCase();
-                if (headerLower.includes('cost') || headerLower.includes('amount') || 
-                    headerLower.includes('fee') || headerLower.includes('price') || 
-                    headerLower.includes('premium')) {
+                if (isCostField(header)) {
                     costFields.push(header);
-                } else if (headerLower.includes('plan') || headerLower.includes('coverage') || 
-                          headerLower.includes('benefit') || headerLower.includes('option') ||
-                          headerLower.includes('type') || headerLower.includes('name')) {
+                } else if (isPlanField(header)) {
                     planFields.push(header);
                 }
             });
@@ -780,7 +812,7 @@
                             }
                             
                             if (correspondingCost !== null) {
-                                planCostPairs.push(`${planName} (${correspondingCost.toFixed(2)})`);
+                                planCostPairs.push(`${planName} ($${correspondingCost.toFixed(2)})`);
                             } else {
                                 planCostPairs.push(String(planName)); // No cost found, just plan name
                             }
@@ -812,7 +844,6 @@
             consolidatedRow._originalRowCount = rows.length;
             consolidatedRow._totalDollarAmount = totalDollarAmount;
             consolidatedRow._sumTotals = sumTotals;
-            consolidatedRow._planCostMappings = planCostMappings;
             
             return consolidatedRow;
         }
@@ -1000,7 +1031,7 @@
                                 .join(', ');
                             notes += `Total costs: ${sumDetails}. `;
                         }
-                        notes += 'Plan fields show individual plan costs as "Plan Name ($Cost)".';
+                        notes += 'Plan/coverage fields show individual plan costs as "Plan Name ($Cost)".';
                     } else {
                         notes = 'Single row - no consolidation needed';
                     }
@@ -1146,6 +1177,7 @@
                     ["Rule 2", "Duplicate field data removed, unique values combined"],
                     ["Rule 3", "Dollar amounts summed across all rows per SSN"],
                     ["Rule 4", "Date matches OR zero/null values trigger inclusion"],
+                    ["Rule 5", "Plan/coverage fields combine as 'Plan Name ($Cost)' format"],
                     ["", ""],
                     ["PROCESSING METADATA", ""],
                     ["Processing Date", new Date().toLocaleDateString()],
