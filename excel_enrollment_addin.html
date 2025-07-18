@@ -580,25 +580,36 @@
         function parseExcelDate(value) {
             if (!value) return null;
             
+            debugLog(`Parsing date value: ${value} (type: ${typeof value})`);
+            
             // If it's already a Date object, return it
             if (value instanceof Date) {
+                debugLog(`Already a Date object: ${value.toLocaleDateString()}`);
                 return value;
             }
             
             // If it's a number (Excel serial date)
             if (typeof value === 'number' && value > 0) {
-                // Excel epoch starts on January 1, 1900 (with some quirks)
-                // But JavaScript Date epoch starts on January 1, 1970
+                // Excel uses a different epoch than JavaScript
                 // Excel serial date 1 = January 1, 1900
-                // To convert: (serial - 25569) * 86400 * 1000
-                const excelEpoch = new Date(1900, 0, 1);
-                const jsDate = new Date(excelEpoch.getTime() + (value - 1) * 24 * 60 * 60 * 1000);
+                // JavaScript Date epoch = January 1, 1970
+                // Formula: (serial - 25569) * 86400 * 1000
+                let jsDate;
                 
-                // Handle Excel's leap year bug (treats 1900 as leap year when it's not)
-                if (value >= 60) {
-                    jsDate.setTime(jsDate.getTime() - 24 * 60 * 60 * 1000);
+                // Handle Excel dates (serial numbers)
+                if (value > 25569) { // After 1970
+                    jsDate = new Date((value - 25569) * 86400 * 1000);
+                } else { // Before 1970, use different calculation
+                    const excelEpoch = new Date(1900, 0, 1);
+                    jsDate = new Date(excelEpoch.getTime() + (value - 1) * 24 * 60 * 60 * 1000);
+                    
+                    // Handle Excel's leap year bug (treats 1900 as leap year when it's not)
+                    if (value >= 60) {
+                        jsDate.setTime(jsDate.getTime() - 24 * 60 * 60 * 1000);
+                    }
                 }
                 
+                debugLog(`Converted Excel serial ${value} to: ${jsDate.toLocaleDateString()}`);
                 return jsDate;
             }
             
@@ -608,37 +619,51 @@
                 const cleanStr = value.trim();
                 if (cleanStr === '') return null;
                 
+                debugLog(`Attempting to parse string: "${cleanStr}"`);
+                
                 // Try standard Date parsing first
                 const parsed = new Date(cleanStr);
                 if (!isNaN(parsed.getTime())) {
+                    debugLog(`Standard parsing worked: ${parsed.toLocaleDateString()}`);
                     return parsed;
                 }
                 
                 // Try common date formats manually
                 const dateFormats = [
-                    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, // MM/DD/YYYY or M/D/YYYY
-                    /^(\d{4})-(\d{1,2})-(\d{1,2})$/, // YYYY-MM-DD
-                    /^(\d{1,2})-(\d{1,2})-(\d{4})$/, // MM-DD-YYYY
+                    { regex: /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, order: 'MDY' }, // MM/DD/YYYY
+                    { regex: /^(\d{4})-(\d{1,2})-(\d{1,2})$/, order: 'YMD' }, // YYYY-MM-DD
+                    { regex: /^(\d{1,2})-(\d{1,2})-(\d{4})$/, order: 'MDY' }, // MM-DD-YYYY
+                    { regex: /^(\d{1,2})\/(\d{1,2})\/(\d{2})$/, order: 'MDY2' }, // MM/DD/YY
                 ];
                 
                 for (const format of dateFormats) {
-                    const match = cleanStr.match(format);
+                    const match = cleanStr.match(format.regex);
                     if (match) {
                         let year, month, day;
-                        if (format === dateFormats[1]) { // YYYY-MM-DD
+                        
+                        if (format.order === 'YMD') {
                             [, year, month, day] = match;
-                        } else { // MM/DD/YYYY or MM-DD-YYYY
+                        } else if (format.order === 'MDY') {
                             [, month, day, year] = match;
+                        } else if (format.order === 'MDY2') {
+                            [, month, day, year] = match;
+                            // Convert 2-digit year to 4-digit
+                            const yr = parseInt(year);
+                            year = yr < 50 ? 2000 + yr : 1900 + yr;
                         }
                         
                         const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
                         if (!isNaN(date.getTime())) {
+                            debugLog(`Manual parsing worked: ${date.toLocaleDateString()}`);
                             return date;
                         }
                     }
                 }
+                
+                debugLog(`Could not parse string date: "${cleanStr}"`);
             }
             
+            debugLog(`Could not parse date value: ${value}`);
             return null;
         }
 
@@ -664,23 +689,41 @@
         }
 
         function isDateMatch(dateValue, targetDate) {
-            if (!dateValue || !targetDate) return false;
+            if (!dateValue || !targetDate) {
+                debugLog(`Date match check failed - missing values: dateValue=${dateValue}, targetDate=${targetDate}`);
+                return false;
+            }
             
             const parsedDate = parseExcelDate(dateValue);
-            if (!parsedDate || isNaN(parsedDate.getTime())) return false;
+            if (!parsedDate || isNaN(parsedDate.getTime())) {
+                debugLog(`Could not parse date value for comparison: ${dateValue}`);
+                return false;
+            }
             
             // Compare only the date part (ignore time)
-            return parsedDate.toDateString() === targetDate.toDateString();
+            const dateString = parsedDate.toDateString();
+            const targetString = targetDate.toDateString();
+            
+            const isMatch = dateString === targetString;
+            debugLog(`Date comparison: ${dateString} === ${targetString} = ${isMatch}`);
+            
+            return isMatch;
         }
 
         function isZeroOrNull(value) {
             // Check for null, undefined, empty string, or zero
-            return value === null || 
+            const isZeroNull = value === null || 
                    value === undefined || 
                    value === '' || 
                    value === 0 || 
                    (typeof value === 'string' && value.trim() === '') ||
                    (typeof value === 'string' && value.trim() === '0');
+            
+            if (isZeroNull) {
+                debugLog(`    Value "${value}" (${typeof value}) is considered zero/null`);
+            }
+            
+            return isZeroNull;
         }
 
         function formatSSN(ssn) {
@@ -766,26 +809,35 @@
             }
             
             debugLog(`Processing ${data.length - 1} data rows (excluding header)`);
+            debugLog(`Target date for matching: ${targetDate.toLocaleDateString()}`);
+            debugLog(`Date fields to check: ${dateFields.map(f => f.name).join(', ')}`);
             
             // First pass: Find all SSNs that have matching dates or zero/null values
             for (let i = 1; i < data.length; i++) {
                 const row = data[i];
                 const ssn = formatSSN(row[ssnIndex]);
-                if (!ssn) continue;
+                if (!ssn) {
+                    debugLog(`Row ${i}: No SSN found, skipping`);
+                    continue;
+                }
                 
                 // Check if any date field matches the target date OR is zero/null
                 let hasMatchingDate = false;
                 let hasZeroOrNull = false;
                 
+                debugLog(`Row ${i}: Checking SSN ${ssn}`);
+                
                 for (const dateField of dateFields) {
                     const dateIndex = headers.indexOf(dateField.name);
                     if (dateIndex !== -1) {
                         const dateValue = row[dateIndex];
+                        debugLog(`  ${dateField.name} (col ${dateIndex}): ${dateValue} (type: ${typeof dateValue})`);
                         
                         // Check for exact date match
                         if (isDateMatch(dateValue, targetDate)) {
                             hasMatchingDate = true;
                             dateMatchCount++;
+                            debugLog(`  ✓ DATE MATCH found in ${dateField.name}`);
                             break;
                         }
                         
@@ -793,16 +845,45 @@
                         if (isZeroOrNull(dateValue)) {
                             hasZeroOrNull = true;
                             zeroNullMatchCount++;
+                            debugLog(`  ✓ ZERO/NULL found in ${dateField.name}`);
                         }
                     }
                 }
                 
                 if (hasMatchingDate || hasZeroOrNull) {
                     matchingSSNs.add(ssn);
+                    debugLog(`  ✓ SSN ${ssn} added to matching set (dateMatch: ${hasMatchingDate}, zeroNull: ${hasZeroOrNull})`);
+                } else {
+                    debugLog(`  ✗ SSN ${ssn} does not match criteria`);
                 }
             }
             
             debugLog(`Found ${matchingSSNs.size} SSNs with matching criteria`);
+            debugLog(`Date matches: ${dateMatchCount}, Zero/null matches: ${zeroNullMatchCount}`);
+            
+            // If no matches found, let's do additional debugging
+            if (matchingSSNs.size === 0) {
+                debugLog('NO MATCHES FOUND - Running additional diagnostics...');
+                
+                // Sample the first few rows to see what we're working with
+                for (let i = 1; i <= Math.min(3, data.length - 1); i++) {
+                    const row = data[i];
+                    debugLog(`Sample row ${i}:`);
+                    headers.forEach((header, index) => {
+                        const value = row[index];
+                        debugLog(`  ${header}: "${value}" (type: ${typeof value})`);
+                    });
+                }
+                
+                // Check if target date parsing is working
+                debugLog(`Target date details: ${targetDate} (${targetDate.toLocaleDateString()}, ${targetDate.toDateString()})`);
+                
+                // Check date field detection
+                debugLog(`Date field detection results:`);
+                dateFields.forEach(field => {
+                    debugLog(`  ${field.name} at index ${field.index}`);
+                });
+            }
             
             // Second pass: Collect ALL rows for matching SSNs
             for (let i = 1; i < data.length; i++) {
