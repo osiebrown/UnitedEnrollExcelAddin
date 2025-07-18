@@ -334,20 +334,24 @@
         });
 
         Office.onReady(() => {
-            console.log('Add-in initialized - Version 2.1 - Cache Buster: ' + Date.now());
-            debugLog('Add-in initialized successfully - Version 2.1');
+            console.log('Add-in initialized - Version 2.2 - Production Mode');
             updateStepIndicators('none');
             
             // Set today's date as default
             const today = new Date();
             document.getElementById('policyDate').value = today.toISOString().split('T')[0];
             
-            // Enable debug mode by adding ?debug=true to URL
+            // Enable debug mode ONLY by adding ?debug=true to URL
             const urlParams = new URLSearchParams(window.location.search);
-            debugMode = urlParams.get('debug') === 'true'; // Only enable with URL parameter
+            debugMode = urlParams.get('debug') === 'true';
+            
             if (debugMode) {
                 document.getElementById('debugInfo').style.display = 'block';
-                debugLog('Debug mode enabled - Version 2.1');
+                debugLog('Debug mode enabled - Version 2.2');
+                console.log('Debug mode is ON - add-in URL contains ?debug=true');
+            } else {
+                document.getElementById('debugInfo').style.display = 'none';
+                console.log('Debug mode is OFF - add ?debug=true to URL to enable');
             }
         });
 
@@ -355,10 +359,13 @@
             const timestamp = new Date().toLocaleTimeString();
             console.log(`[${timestamp}] ${message}`);
             
+            // Only show debug info if debug mode is explicitly enabled
             if (debugMode) {
                 const debugDiv = document.getElementById('debugInfo');
-                debugDiv.innerHTML += `<div>[${timestamp}] ${message}</div>`;
-                debugDiv.scrollTop = debugDiv.scrollHeight;
+                if (debugDiv) {
+                    debugDiv.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+                    debugDiv.scrollTop = debugDiv.scrollHeight;
+                }
             }
         }
 
