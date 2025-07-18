@@ -294,6 +294,7 @@
                     <li>If ANY row for an SSN matches criteria, ALL rows for that SSN will be included</li>
                     <li>Multiple rows per SSN will be consolidated into ONE row with unique data</li>
                     <li>Dollar amounts will be summed across all rows per SSN</li>
+                    <li><strong>NEW:</strong> Plan fields show individual costs as "Plan Name ($Cost) | Plan Name ($Cost)"</li>
                 </ul>
             </div>
         </div>
@@ -721,6 +722,27 @@
             const consolidatedRow = {};
             const sumTotals = {};
             let totalDollarAmount = 0;
+            const planCostMappings = {}; // Track plan names with their costs
+            
+            // First pass: identify cost fields and plan fields
+            const costFields = [];
+            const planFields = [];
+            
+            headers.forEach(header => {
+                const headerLower = header.toLowerCase();
+                if (headerLower.includes('cost') || headerLower.includes('amount') || 
+                    headerLower.includes('fee') || headerLower.includes('price') || 
+                    headerLower.includes('premium')) {
+                    costFields.push(header);
+                } else if (headerLower.includes('plan') || headerLower.includes('coverage') || 
+                          headerLower.includes('benefit') || headerLower.includes('option') ||
+                          headerLower.includes('type') || headerLower.includes('name')) {
+                    planFields.push(header);
+                }
+            });
+            
+            debugLog(`Detected ${costFields.length} cost fields: ${costFields.join(', ')}`);
+            debugLog(`Detected ${planFields.length} plan fields: ${planFields.join(', ')}`);
             
             // Process each header/field
             headers.forEach(header => {
@@ -731,15 +753,46 @@
                     return;
                 }
                 
-                // Check if this field contains dollar values that should be summed
+                // Check if this is a cost field that should be summed
                 const dollarValues = values.filter(val => isDollarValue(val));
-                if (dollarValues.length > 0) {
+                if (dollarValues.length > 0 && costFields.includes(header)) {
                     const sum = dollarValues.reduce((acc, val) => acc + parseFloat(val), 0);
                     sumTotals[header] = sum;
                     totalDollarAmount += sum;
                     consolidatedRow[header] = `${sum.toFixed(2)}`;
+                } else if (planFields.includes(header)) {
+                    // This is a plan field - we need to combine it with corresponding costs
+                    const planCostPairs = [];
+                    
+                    rows.forEach(row => {
+                        const planName = row[header];
+                        if (planName && planName !== '') {
+                            // Find corresponding cost in this row
+                            let correspondingCost = null;
+                            
+                            // Look for cost fields in the same row
+                            for (const costField of costFields) {
+                                const costValue = row[costField];
+                                if (costValue && isDollarValue(costValue)) {
+                                    correspondingCost = parseFloat(costValue);
+                                    break; // Use first valid cost found
+                                }
+                            }
+                            
+                            if (correspondingCost !== null) {
+                                planCostPairs.push(`${planName} (${correspondingCost.toFixed(2)})`);
+                            } else {
+                                planCostPairs.push(String(planName)); // No cost found, just plan name
+                            }
+                        }
+                    });
+                    
+                    // Remove duplicates and join
+                    const uniquePlanCostPairs = [...new Set(planCostPairs)];
+                    consolidatedRow[header] = uniquePlanCostPairs.join(' | ');
+                    
                 } else {
-                    // Get unique values only
+                    // Regular field - get unique values only
                     const uniqueValues = [...new Set(values.map(val => {
                         if (val instanceof Date) return val.toLocaleDateString();
                         return String(val);
@@ -759,6 +812,7 @@
             consolidatedRow._originalRowCount = rows.length;
             consolidatedRow._totalDollarAmount = totalDollarAmount;
             consolidatedRow._sumTotals = sumTotals;
+            consolidatedRow._planCostMappings = planCostMappings;
             
             return consolidatedRow;
         }
@@ -944,8 +998,9 @@
                             const sumDetails = Object.entries(data._sumTotals)
                                 .map(([field, sum]) => `${field}: ${sum.toFixed(2)}`)
                                 .join(', ');
-                            notes += `Sums: ${sumDetails}`;
+                            notes += `Total costs: ${sumDetails}. `;
                         }
+                        notes += 'Plan fields show individual plan costs as "Plan Name ($Cost)".';
                     } else {
                         notes = 'Single row - no consolidation needed';
                     }
