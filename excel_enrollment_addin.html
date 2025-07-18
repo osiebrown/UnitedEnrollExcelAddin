@@ -295,6 +295,7 @@
                     <li>Multiple rows per SSN will be consolidated into ONE row with unique data</li>
                     <li>Dollar amounts will be summed across all rows per SSN</li>
                     <li><strong>NEW:</strong> Plan/coverage fields show individual costs as "Plan Name ($Cost) | Plan Name ($Cost)"</li>
+                    <li><strong>FIXED:</strong> Date fields maintain proper Excel date formatting</li>
                 </ul>
             </div>
         </div>
@@ -564,25 +565,112 @@
             }
         }
 
+        function isDateField(header) {
+            const headerLower = header.toLowerCase();
+            return headerLower.includes('date') || 
+                   headerLower.includes('dob') ||
+                   headerLower.includes('enrolled') ||
+                   headerLower.includes('hire') ||
+                   headerLower.includes('start') ||
+                   headerLower.includes('effective') ||
+                   headerLower.includes('created') ||
+                   headerLower.includes('modified');
+        }
+
+        function parseExcelDate(value) {
+            if (!value) return null;
+            
+            // If it's already a Date object, return it
+            if (value instanceof Date) {
+                return value;
+            }
+            
+            // If it's a number (Excel serial date)
+            if (typeof value === 'number' && value > 0) {
+                // Excel epoch starts on January 1, 1900 (with some quirks)
+                // But JavaScript Date epoch starts on January 1, 1970
+                // Excel serial date 1 = January 1, 1900
+                // To convert: (serial - 25569) * 86400 * 1000
+                const excelEpoch = new Date(1900, 0, 1);
+                const jsDate = new Date(excelEpoch.getTime() + (value - 1) * 24 * 60 * 60 * 1000);
+                
+                // Handle Excel's leap year bug (treats 1900 as leap year when it's not)
+                if (value >= 60) {
+                    jsDate.setTime(jsDate.getTime() - 24 * 60 * 60 * 1000);
+                }
+                
+                return jsDate;
+            }
+            
+            // If it's a string, try to parse it
+            if (typeof value === 'string') {
+                // Try various date formats
+                const cleanStr = value.trim();
+                if (cleanStr === '') return null;
+                
+                // Try standard Date parsing first
+                const parsed = new Date(cleanStr);
+                if (!isNaN(parsed.getTime())) {
+                    return parsed;
+                }
+                
+                // Try common date formats manually
+                const dateFormats = [
+                    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, // MM/DD/YYYY or M/D/YYYY
+                    /^(\d{4})-(\d{1,2})-(\d{1,2})$/, // YYYY-MM-DD
+                    /^(\d{1,2})-(\d{1,2})-(\d{4})$/, // MM-DD-YYYY
+                ];
+                
+                for (const format of dateFormats) {
+                    const match = cleanStr.match(format);
+                    if (match) {
+                        let year, month, day;
+                        if (format === dateFormats[1]) { // YYYY-MM-DD
+                            [, year, month, day] = match;
+                        } else { // MM/DD/YYYY or MM-DD-YYYY
+                            [, month, day, year] = match;
+                        }
+                        
+                        const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                        if (!isNaN(date.getTime())) {
+                            return date;
+                        }
+                    }
+                }
+            }
+            
+            return null;
+        }
+
+        function formatDateForExcel(value) {
+            if (!value) return '';
+            
+            const date = parseExcelDate(value);
+            if (!date || isNaN(date.getTime())) {
+                return value; // Return original value if can't parse
+            }
+            
+            // Return as Excel serial date number for proper date formatting
+            // Excel epoch: January 1, 1900 = 1
+            const excelEpoch = new Date(1900, 0, 1);
+            let serialDate = Math.floor((date.getTime() - excelEpoch.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+            
+            // Handle Excel's leap year bug
+            if (serialDate >= 60) {
+                serialDate += 1;
+            }
+            
+            return serialDate;
+        }
+
         function isDateMatch(dateValue, targetDate) {
             if (!dateValue || !targetDate) return false;
             
-            let date;
-            if (typeof dateValue === 'string') {
-                date = new Date(dateValue);
-            } else if (typeof dateValue === 'number') {
-                // Excel serial date number
-                date = new Date((dateValue - 25569) * 86400 * 1000);
-            } else if (dateValue instanceof Date) {
-                date = dateValue;
-            } else {
-                return false;
-            }
-            
-            if (isNaN(date.getTime())) return false;
+            const parsedDate = parseExcelDate(dateValue);
+            if (!parsedDate || isNaN(parsedDate.getTime())) return false;
             
             // Compare only the date part (ignore time)
-            return date.toDateString() === targetDate.toDateString();
+            return parsedDate.toDateString() === targetDate.toDateString();
         }
 
         function isZeroOrNull(value) {
@@ -785,13 +873,31 @@
                     return;
                 }
                 
+                // Special handling for date fields - preserve the original date format
+                if (isDateField(header)) {
+                    // For date fields, get the first valid date value
+                    const validDates = values.filter(val => {
+                        const parsed = parseExcelDate(val);
+                        return parsed && !isNaN(parsed.getTime());
+                    });
+                    
+                    if (validDates.length > 0) {
+                        // Use the first valid date, preserving original format
+                        consolidatedRow[header] = validDates[0];
+                    } else {
+                        // If no valid dates, use the first non-empty value
+                        consolidatedRow[header] = values[0];
+                    }
+                    return;
+                }
+                
                 // Check if this is a cost field that should be summed
                 const dollarValues = values.filter(val => isDollarValue(val));
                 if (dollarValues.length > 0 && costFields.includes(header)) {
                     const sum = dollarValues.reduce((acc, val) => acc + parseFloat(val), 0);
                     sumTotals[header] = sum;
                     totalDollarAmount += sum;
-                    consolidatedRow[header] = `${sum.toFixed(2)}`;
+                    consolidatedRow[header] = sum; // Store as number for proper Excel formatting
                 } else if (planFields.includes(header)) {
                     // This is a plan field - we need to combine it with corresponding costs
                     const planCostPairs = [];
@@ -812,7 +918,7 @@
                             }
                             
                             if (correspondingCost !== null) {
-                                planCostPairs.push(`${planName} ($${correspondingCost.toFixed(2)})`);
+                                planCostPairs.push(`${planName} (${correspondingCost.toFixed(2)})`);
                             } else {
                                 planCostPairs.push(String(planName)); // No cost found, just plan name
                             }
@@ -826,12 +932,11 @@
                 } else {
                     // Regular field - get unique values only
                     const uniqueValues = [...new Set(values.map(val => {
-                        if (val instanceof Date) return val.toLocaleDateString();
                         return String(val);
                     }))];
                     
                     if (uniqueValues.length === 1) {
-                        consolidatedRow[header] = uniqueValues[0];
+                        consolidatedRow[header] = values[0]; // Use original value, not string conversion
                     } else {
                         // Multiple unique values - combine them
                         consolidatedRow[header] = uniqueValues.join(' | ');
@@ -1013,13 +1118,23 @@
                     
                     // Prepare row data for all original headers
                     const rowData = originalHeaders.map(header => {
-                        const value = data[header];
-                        return (value !== undefined && value !== null) ? value : '';
+                        let value = data[header];
+                        if (value === undefined || value === null) {
+                            return '';
+                        }
+                        
+                        // Special handling for date fields - format properly for Excel
+                        if (isDateField(header) && value !== '') {
+                            const excelDate = formatDateForExcel(value);
+                            return excelDate !== '' ? excelDate : value;
+                        }
+                        
+                        return value;
                     });
                     
                     // Add summary columns
                     rowData.push(data._originalRowCount || 1); // Number of rows consolidated
-                    rowData.push(data._totalDollarAmount ? `${data._totalDollarAmount.toFixed(2)}` : '$0.00'); // Total dollar amount
+                    rowData.push(data._totalDollarAmount || 0); // Total dollar amount as number
                     
                     // Create consolidation notes
                     let notes = '';
@@ -1041,15 +1156,27 @@
                     const rowRange = newSheet.getRange(`A${currentRow}:${getExcelColumnName(enhancedHeaders.length)}${currentRow}`);
                     rowRange.values = [rowData];
                     
+                    // Apply proper date formatting to date columns
+                    originalHeaders.forEach((header, headerIndex) => {
+                        if (isDateField(header)) {
+                            const cellRange = newSheet.getRange(`${getExcelColumnName(headerIndex + 1)}${currentRow}`);
+                            cellRange.numberFormat = [["mm/dd/yyyy"]];
+                        }
+                    });
+                    
+                    // Format dollar amount columns
+                    const dollarAmountColIndex = enhancedHeaders.length - 1; // TOTAL_DOLLAR_AMOUNT column
+                    const dollarRange = newSheet.getRange(`${getExcelColumnName(dollarAmountColIndex)}${currentRow}`);
+                    dollarRange.numberFormat = [["$#,##0.00"]];
+                    
                     // Apply special formatting for consolidated rows
                     if (data._originalRowCount > 1) {
                         // Highlight consolidated rows in light blue
                         rowRange.format.fill.color = "#E3F2FD";
                         
                         // Make dollar sum columns bold
-                        const dollarSumColumn = newSheet.getRange(`${getExcelColumnName(enhancedHeaders.length - 1)}${currentRow}`);
-                        dollarSumColumn.format.font.bold = true;
-                        dollarSumColumn.format.fill.color = "#FFEB3B"; // Yellow for dollar totals
+                        dollarRange.format.font.bold = true;
+                        dollarRange.format.fill.color = "#FFEB3B"; // Yellow for dollar totals
                     }
                     
                     currentRow++;
@@ -1169,8 +1296,8 @@
                     ["SSNs with Single Row", totalSSNs - consolidatedRowsCount],
                     ["", ""],
                     ["FINANCIAL SUMMARY", ""],
-                    ["Total Dollar Amount", `${totalDollarAmount.toFixed(2)}`],
-                    ["Average per SSN", totalSSNs > 0 ? `${(totalDollarAmount / totalSSNs).toFixed(2)}` : '$0.00'],
+                    ["Total Dollar Amount", totalDollarAmount],
+                    ["Average per SSN", totalSSNs > 0 ? (totalDollarAmount / totalSSNs) : 0],
                     ["", ""],
                     ["CONSOLIDATION LOGIC", ""],
                     ["Rule 1", "All rows for SSN included if ANY date matches criteria"],
@@ -1178,6 +1305,7 @@
                     ["Rule 3", "Dollar amounts summed across all rows per SSN"],
                     ["Rule 4", "Date matches OR zero/null values trigger inclusion"],
                     ["Rule 5", "Plan/coverage fields combine as 'Plan Name ($Cost)' format"],
+                    ["Rule 6", "Date fields maintain proper Excel date formatting"],
                     ["", ""],
                     ["PROCESSING METADATA", ""],
                     ["Processing Date", new Date().toLocaleDateString()],
@@ -1211,6 +1339,15 @@
                         rowRange.format.font.color = "#7B1FA2";
                     }
                 }
+                
+                // Apply currency formatting to dollar amounts
+                const dollarRows = [17, 18]; // Total Dollar Amount and Average per SSN
+                dollarRows.forEach(rowNum => {
+                    if (rowNum <= summaryData.length) {
+                        const cellRange = summarySheet.getRange(`B${rowNum}`);
+                        cellRange.numberFormat = [["$#,##0.00"]];
+                    }
+                });
                 
                 await context.sync();
                 debugLog('Summary data written and formatted');
