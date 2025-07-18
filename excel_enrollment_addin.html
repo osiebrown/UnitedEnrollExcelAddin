@@ -833,12 +833,12 @@
             });
             debugLog('=== END SAMPLE DATA ===');
             
-            // First pass: Find all SSNs that have matching dates or zero/null values
+            // Process ALL rows - detailed logging for first 5, minimal for rest
             for (let i = 1; i < data.length; i++) {
                 const row = data[i];
                 const ssn = formatSSN(row[ssnIndex]);
                 if (!ssn) {
-                    debugLog(`Row ${i}: No SSN found, skipping`);
+                    if (i <= 5) debugLog(`Row ${i}: No SSN found, skipping`);
                     continue;
                 }
                 
@@ -846,19 +846,19 @@
                 let hasMatchingDate = false;
                 let hasZeroOrNull = false;
                 
-                debugLog(`Row ${i}: Checking SSN ${ssn}`);
+                if (i <= 5) debugLog(`Row ${i}: Checking SSN ${ssn}`);
                 
                 for (const dateField of dateFields) {
                     const dateIndex = headers.indexOf(dateField.name);
                     if (dateIndex !== -1) {
                         const dateValue = row[dateIndex];
-                        debugLog(`  ${dateField.name} (col ${dateIndex}): "${dateValue}" (type: ${typeof dateValue})`);
+                        if (i <= 5) debugLog(`  ${dateField.name} (col ${dateIndex}): "${dateValue}" (type: ${typeof dateValue})`);
                         
                         // Check for exact date match
                         if (isDateMatch(dateValue, targetDate)) {
                             hasMatchingDate = true;
                             dateMatchCount++;
-                            debugLog(`  ✓ DATE MATCH found in ${dateField.name}`);
+                            debugLog(`  ✓ DATE MATCH found in row ${i}, ${dateField.name}: "${dateValue}"`);
                             break;
                         }
                         
@@ -866,58 +866,21 @@
                         if (isZeroOrNull(dateValue)) {
                             hasZeroOrNull = true;
                             zeroNullMatchCount++;
-                            debugLog(`  ✓ ZERO/NULL found in ${dateField.name}`);
+                            if (i <= 5) debugLog(`  ✓ ZERO/NULL found in ${dateField.name}`);
                         }
                     }
                 }
                 
                 if (hasMatchingDate || hasZeroOrNull) {
                     matchingSSNs.add(ssn);
-                    debugLog(`  ✓ SSN ${ssn} added to matching set (dateMatch: ${hasMatchingDate}, zeroNull: ${hasZeroOrNull})`);
+                    if (i <= 5) {
+                        debugLog(`  ✓ SSN ${ssn} added to matching set (dateMatch: ${hasMatchingDate}, zeroNull: ${hasZeroOrNull})`);
+                    } else {
+                        // For rows beyond 5, only log matches to avoid spam
+                        debugLog(`  ✓ Row ${i}: SSN ${ssn} matches criteria`);
+                    }
                 } else {
-                    debugLog(`  ✗ SSN ${ssn} does not match criteria`);
-                }
-                
-                // Only process first 5 rows in detail to avoid too much logging
-                if (i > 5) break;
-            }
-            
-            // If no matches in first 5 rows, continue processing but with less logging
-            if (matchingSSNs.size === 0) {
-                debugLog('No matches in first 5 rows, continuing to process all rows with minimal logging...');
-                
-                for (let i = 6; i < data.length; i++) {
-                    const row = data[i];
-                    const ssn = formatSSN(row[ssnIndex]);
-                    if (!ssn) continue;
-                    
-                    let hasMatchingDate = false;
-                    let hasZeroOrNull = false;
-                    
-                    for (const dateField of dateFields) {
-                        const dateIndex = headers.indexOf(dateField.name);
-                        if (dateIndex !== -1) {
-                            const dateValue = row[dateIndex];
-                            
-                            if (isDateMatch(dateValue, targetDate)) {
-                                hasMatchingDate = true;
-                                dateMatchCount++;
-                                debugLog(`  ✓ DATE MATCH found in row ${i}, ${dateField.name}: "${dateValue}"`);
-                                break;
-                            }
-                            
-                            if (isZeroOrNull(dateValue)) {
-                                hasZeroOrNull = true;
-                                zeroNullMatchCount++;
-                                debugLog(`  ✓ ZERO/NULL found in row ${i}, ${dateField.name}: "${dateValue}"`);
-                            }
-                        }
-                    }
-                    
-                    if (hasMatchingDate || hasZeroOrNull) {
-                        matchingSSNs.add(ssn);
-                        debugLog(`  ✓ SSN ${ssn} (row ${i}) added to matching set`);
-                    }
+                    if (i <= 5) debugLog(`  ✗ SSN ${ssn} does not match criteria`);
                 }
             }
             
