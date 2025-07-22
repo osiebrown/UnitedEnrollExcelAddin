@@ -269,7 +269,7 @@
             <span class="step" id="step2Indicator">2</span>
         </div>
         
-        <button class="button step1" id="analyzeBtn" onclick="analyzeCurrentSheet()">
+        <button class="button step1" id="analyzeBtn">
             Step 1: Analyze
         </button>
         
@@ -307,7 +307,7 @@
             </div>
         </div>
         
-        <button class="button step2" id="processBtn" onclick="processEnrollmentData()" disabled>
+        <button class="button step2" id="processBtn" disabled>
             Step 2: Process
         </button>
         
@@ -328,6 +328,7 @@
         let detectedCostFields = [];
         let policyChangeDate = null;
         let debugMode = false;
+        let officeReady = false;
 
         // Global error handling
         window.addEventListener('unhandledrejection', (event) => {
@@ -342,6 +343,7 @@
 
         Office.onReady(() => {
             console.log('Add-in initialized - Version 2.3 - Coverage Removal Detection');
+            officeReady = true;
             updateStepIndicators('none');
             
             // Set today's date as default
@@ -361,18 +363,42 @@
                 console.log('Debug mode is OFF - add ?debug=true to URL to enable');
             }
             
-            // Test button functionality
+            // Set up button event listeners after Office is ready
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
             const analyzeBtn = document.getElementById('analyzeBtn');
+            const processBtn = document.getElementById('processBtn');
+            
             if (analyzeBtn) {
-                debugLog('Analyze button found and ready');
-                // Add additional click handler for testing
                 analyzeBtn.addEventListener('click', function() {
-                    debugLog('Analyze button clicked - event listener triggered');
+                    debugLog('Analyze button clicked');
+                    if (!officeReady) {
+                        showStatus('Office.js is not ready yet. Please wait a moment and try again.', 'error');
+                        return;
+                    }
+                    analyzeCurrentSheet();
                 });
+                debugLog('Analyze button event listener attached');
             } else {
                 debugLog('ERROR: Analyze button not found!');
             }
-        });
+            
+            if (processBtn) {
+                processBtn.addEventListener('click', function() {
+                    debugLog('Process button clicked');
+                    if (!officeReady) {
+                        showStatus('Office.js is not ready yet. Please wait a moment and try again.', 'error');
+                        return;
+                    }
+                    processEnrollmentData();
+                });
+                debugLog('Process button event listener attached');
+            } else {
+                debugLog('ERROR: Process button not found!');
+            }
+        }
 
         function debugLog(message) {
             const timestamp = new Date().toLocaleTimeString();
@@ -540,6 +566,19 @@
             try {
                 debugLog('Starting analyzeCurrentSheet function...');
                 
+                // Check if Office.js is ready
+                if (!officeReady) {
+                    showStatus('Office.js is not ready yet. Please wait a moment and try again.', 'error');
+                    debugLog('Error: Office.js not ready');
+                    return;
+                }
+                
+                if (typeof Excel === 'undefined') {
+                    showStatus('Excel API not available. Make sure this is running in Excel.', 'error');
+                    debugLog('Error: Excel API not available');
+                    return;
+                }
+                
                 // Validate date input
                 const dateInput = document.getElementById('policyDate');
                 if (!dateInput.value) {
@@ -558,11 +597,6 @@
                 const analyzeBtn = document.getElementById('analyzeBtn');
                 analyzeBtn.disabled = true;
                 debugLog('Analyze button disabled, starting Excel operations...');
-                
-                // Check if Office.js is ready
-                if (typeof Excel === 'undefined') {
-                    throw new Error('Excel API not available. Make sure this is running in Excel.');
-                }
                 
                 debugLog('Excel API available, starting Excel.run...');
                 
