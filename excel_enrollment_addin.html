@@ -360,6 +360,18 @@
                 document.getElementById('debugInfo').style.display = 'none';
                 console.log('Debug mode is OFF - add ?debug=true to URL to enable');
             }
+            
+            // Test button functionality
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            if (analyzeBtn) {
+                debugLog('Analyze button found and ready');
+                // Add additional click handler for testing
+                analyzeBtn.addEventListener('click', function() {
+                    debugLog('Analyze button clicked - event listener triggered');
+                });
+            } else {
+                debugLog('ERROR: Analyze button not found!');
+            }
         });
 
         function debugLog(message) {
@@ -526,10 +538,13 @@
 
         async function analyzeCurrentSheet() {
             try {
+                debugLog('Starting analyzeCurrentSheet function...');
+                
                 // Validate date input
                 const dateInput = document.getElementById('policyDate');
                 if (!dateInput.value) {
                     showStatus('Please select a policy change date first', 'error');
+                    debugLog('Error: No policy date selected');
                     return;
                 }
                 
@@ -542,22 +557,42 @@
                 
                 const analyzeBtn = document.getElementById('analyzeBtn');
                 analyzeBtn.disabled = true;
+                debugLog('Analyze button disabled, starting Excel operations...');
+                
+                // Check if Office.js is ready
+                if (typeof Excel === 'undefined') {
+                    throw new Error('Excel API not available. Make sure this is running in Excel.');
+                }
+                
+                debugLog('Excel API available, starting Excel.run...');
                 
                 await Excel.run(async (context) => {
-                    const worksheet = context.workbook.worksheets.getActiveWorksheet();
-                    const usedRange = worksheet.getUsedRange();
+                    debugLog('Inside Excel.run context');
                     
-                    if (!usedRange) {
+                    const worksheet = context.workbook.worksheets.getActiveWorksheet();
+                    debugLog('Got active worksheet');
+                    
+                    const usedRange = worksheet.getUsedRange();
+                    debugLog('Got used range');
+                    
+                    usedRange.load("values");
+                    debugLog('Loaded values property');
+                    
+                    await context.sync();
+                    debugLog('Context sync completed');
+                    
+                    if (usedRange.isNullObject) {
                         showStatus('No data found in the current sheet', 'error');
+                        debugLog('Used range is null object');
                         return;
                     }
                     
-                    usedRange.load("values");
-                    await context.sync();
-                    
                     const data = usedRange.values;
-                    if (data.length === 0) {
+                    debugLog(`Retrieved data: ${data ? data.length : 'null'} rows`);
+                    
+                    if (!data || data.length === 0) {
                         showStatus('No data found in the current sheet', 'error');
+                        debugLog('No data or empty data array');
                         return;
                     }
                     
@@ -567,11 +602,14 @@
                     currentSheetData = data;
                     detectedHeaders = data[0];
                     debugLog(`Loaded ${data.length} rows with ${detectedHeaders.length} columns`);
+                    debugLog(`Headers: ${detectedHeaders.join(', ')}`);
                     
                     // Analyze headers
                     const { ssnFields, dateFields, costFields } = detectFields(detectedHeaders);
                     detectedDateFields = dateFields;
                     detectedCostFields = costFields;
+                    
+                    debugLog(`Detection results: ${ssnFields.length} SSN, ${dateFields.length} date, ${costFields.length} cost fields`);
                     
                     updateProgress(75);
                     
@@ -582,19 +620,26 @@
                     
                     // Show field selection
                     document.getElementById('fieldSelection').style.display = 'block';
+                    debugLog('Field selection UI displayed');
                     
                     // Initialize selected fields
                     updateSelectedFields();
                     
                     updateProgress(100);
                     setTimeout(() => updateProgress(0), 1000);
+                    
+                    debugLog('Analysis completed successfully');
                 });
                 
                 analyzeBtn.disabled = false;
+                debugLog('Analyze button re-enabled');
                 
             } catch (error) {
-                showStatus('Error analyzing sheet: ' + error.message, 'error');
+                const errorMessage = 'Error analyzing sheet: ' + error.message;
+                showStatus(errorMessage, 'error');
                 debugLog('Analysis error: ' + error.message);
+                debugLog('Full error object: ' + JSON.stringify(error));
+                console.error('Full error:', error);
                 updateProgress(0);
                 document.getElementById('analyzeBtn').disabled = false;
             }
