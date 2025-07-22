@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enrollment Data Processor</title>
+    <title>Enrollment Data Processor v2.4</title>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
     <style>
         body {
@@ -341,8 +341,12 @@
             debugLog('Global error: ' + event.message);
         });
 
-        Office.onReady(() => {
-            console.log('Add-in initialized - Version 2.3 - Coverage Removal Detection');
+        Office.onReady((info) => {
+            console.log('=== OFFICE.JS READY ===');
+            console.log('Host:', info.host);
+            console.log('Platform:', info.platform);
+            console.log('Add-in initialized - Version 2.4 - FIXED BUTTON ISSUE');
+            
             officeReady = true;
             updateStepIndicators('none');
             
@@ -356,7 +360,7 @@
             
             if (debugMode) {
                 document.getElementById('debugInfo').style.display = 'block';
-                debugLog('Debug mode enabled - Version 2.3');
+                debugLog('Debug mode enabled - Version 2.4');
                 console.log('Debug mode is ON - add-in URL contains ?debug=true');
             } else {
                 document.getElementById('debugInfo').style.display = 'none';
@@ -365,39 +369,81 @@
             
             // Set up button event listeners after Office is ready
             setupEventListeners();
+            
+            console.log('=== OFFICE.JS INITIALIZATION COMPLETE ===');
         });
 
         function setupEventListeners() {
+            console.log('=== SETTING UP EVENT LISTENERS ===');
+            
             const analyzeBtn = document.getElementById('analyzeBtn');
             const processBtn = document.getElementById('processBtn');
             
             if (analyzeBtn) {
-                analyzeBtn.addEventListener('click', function() {
-                    debugLog('Analyze button clicked');
+                console.log('Found analyze button, adding event listener...');
+                
+                // Remove any existing onclick attribute to be absolutely sure
+                analyzeBtn.removeAttribute('onclick');
+                
+                // Clear any existing event listeners
+                const newAnalyzeBtn = analyzeBtn.cloneNode(true);
+                analyzeBtn.parentNode.replaceChild(newAnalyzeBtn, analyzeBtn);
+                
+                newAnalyzeBtn.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    console.log('=== ANALYZE BUTTON CLICKED ===');
+                    debugLog('Analyze button clicked via event listener');
+                    
                     if (!officeReady) {
+                        console.error('Office.js not ready!');
                         showStatus('Office.js is not ready yet. Please wait a moment and try again.', 'error');
                         return;
                     }
+                    
+                    console.log('Office.js is ready, calling analyzeCurrentSheet...');
                     analyzeCurrentSheet();
                 });
+                
+                console.log('Analyze button event listener attached successfully');
                 debugLog('Analyze button event listener attached');
             } else {
+                console.error('ERROR: Analyze button not found!');
                 debugLog('ERROR: Analyze button not found!');
             }
             
             if (processBtn) {
-                processBtn.addEventListener('click', function() {
-                    debugLog('Process button clicked');
+                console.log('Found process button, adding event listener...');
+                
+                // Remove any existing onclick attribute
+                processBtn.removeAttribute('onclick');
+                
+                // Clear any existing event listeners
+                const newProcessBtn = processBtn.cloneNode(true);
+                processBtn.parentNode.replaceChild(newProcessBtn, processBtn);
+                
+                newProcessBtn.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    console.log('=== PROCESS BUTTON CLICKED ===');
+                    debugLog('Process button clicked via event listener');
+                    
                     if (!officeReady) {
+                        console.error('Office.js not ready!');
                         showStatus('Office.js is not ready yet. Please wait a moment and try again.', 'error');
                         return;
                     }
+                    
+                    console.log('Office.js is ready, calling processEnrollmentData...');
                     processEnrollmentData();
                 });
+                
+                console.log('Process button event listener attached successfully');
                 debugLog('Process button event listener attached');
             } else {
+                console.error('ERROR: Process button not found!');
                 debugLog('ERROR: Process button not found!');
             }
+            
+            console.log('=== EVENT LISTENERS SETUP COMPLETE ===');
         }
 
         function debugLog(message) {
