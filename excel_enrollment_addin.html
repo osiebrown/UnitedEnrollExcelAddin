@@ -335,8 +335,8 @@
             Step 2: Process
         </button>
         
-        <button class="button audit" id="auditBtn" type="button" style="display: none;">
-            Medical Audit Report
+        <button class="button audit" id="auditBtn" type="button">
+            Medical Audit Report (Checking sheets...)
         </button>
         
         <div id="auditSection" class="audit-section">
@@ -445,13 +445,28 @@
                     worksheetCount = worksheets.count;
                     debugLog(`Detected ${worksheetCount} worksheets`);
                     
+                    // Always show the audit button, but enable/disable based on sheet count
+                    const auditBtn = document.getElementById('auditBtn');
+                    auditBtn.style.display = 'block';
+                    
                     if (worksheetCount >= 2) {
-                        document.getElementById('auditBtn').style.display = 'block';
+                        auditBtn.disabled = false;
+                        auditBtn.textContent = 'Medical Audit Report';
                         debugLog('Medical Audit Report button enabled');
+                        showStatus(`Medical Audit Report available (${worksheetCount} sheets detected)`, 'success');
+                    } else {
+                        auditBtn.disabled = true;
+                        auditBtn.textContent = `Medical Audit Report (Need 2+ Sheets - Found ${worksheetCount})`;
+                        debugLog('Medical Audit Report button disabled - need more sheets');
                     }
                 });
             } catch (error) {
                 debugLog('Error checking worksheet count: ' + error.message);
+                // Still show the button even if there's an error
+                const auditBtn = document.getElementById('auditBtn');
+                auditBtn.style.display = 'block';
+                auditBtn.disabled = true;
+                auditBtn.textContent = 'Medical Audit Report (Error detecting sheets)';
             }
         }
 
