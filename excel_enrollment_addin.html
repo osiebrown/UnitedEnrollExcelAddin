@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enrollment Data Processor v3.0 COMPLETE</title>
+    <title>Enrollment Data Processor v3.1 COMPLETE</title>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
     <style>
         body {
@@ -112,12 +112,12 @@
             background-color: #106ebe;
         }
         
-        .button.audit {
-            background-color: #dc3545;
+        .button.open-enrollment {
+            background-color: #28a745;
         }
         
-        .button.audit:hover {
-            background-color: #c82333;
+        .button.open-enrollment:hover {
+            background-color: #218838;
         }
         
         .status {
@@ -283,7 +283,7 @@
             <span class="logo-united">UNITED</span>
             <span class="logo-enroll">ENROLL</span>
         </div>
-        <h1>Enrollment Data Processor v3.0</h1>
+        <h1>Enrollment Data Processor v3.1</h1>
         
         <div class="date-input-section">
             <label for="policyDate">Policy Change Date:</label>
@@ -320,13 +320,14 @@
             </div>
             
             <div class="zero-null-info">
-                <strong>Simplified Logic v3.0:</strong> 
+                <strong>Simplified Logic v3.1:</strong> 
                 <ul style="margin: 5px 0; padding-left: 20px;">
                     <li><strong>EXCLUDE:</strong> SSNs where ALL rows have cost > $0 AND ALL date fields are NOT in the target date range</li>
                     <li><strong>INCLUDE:</strong> All other SSN combinations (ANY date match OR ANY zero/null cost OR ANY zero/null date)</li>
                     <li>Multiple rows per SSN consolidated into ONE row with combined data</li>
                     <li>Dollar amounts summed across all rows per SSN</li>
                     <li>Plan/coverage fields show costs as "Plan Name ($Cost) | Plan Name ($Cost)"</li>
+                    <li><strong>NEW v3.1:</strong> Open Enrollment mode available when 2+ sheets with SSN fields detected</li>
                 </ul>
             </div>
         </div>
@@ -335,8 +336,8 @@
             Step 2: Process
         </button>
         
-        <button class="button audit" id="auditBtn" type="button">
-            Medical Audit Report (Checking sheets...)
+        <button class="button open-enrollment" id="openEnrollmentBtn" type="button" style="display: none;" disabled>
+            Step 2: Open Enrollment
         </button>
         
         <div id="auditSection" class="audit-section">
@@ -375,6 +376,8 @@
         let debugMode = false;
         let officeReady = false;
         let worksheetCount = 0;
+        let allSheetsData = [];
+        let hasSSNInBothSheets = false;
         
         // Healthcare abbreviations mapping
         const healthcareAbbreviations = {
@@ -413,13 +416,12 @@
         };
 
         Office.onReady((info) => {
-            console.log('=== OFFICE.JS READY - VERSION 3.0 COMPLETE ===');
+            console.log('=== OFFICE.JS READY - VERSION 3.1 COMPLETE ===');
             console.log('Host:', info.host);
             console.log('Platform:', info.platform);
             
             officeReady = true;
             updateStepIndicators('none');
-            checkWorksheetCount();
             
             const today = new Date();
             document.getElementById('policyDate').value = today.toISOString().split('T')[0];
@@ -429,7 +431,7 @@
             
             if (debugMode) {
                 document.getElementById('debugInfo').style.display = 'block';
-                debugLog('Debug mode enabled - Version 3.0 COMPLETE');
+                debugLog('Debug mode enabled - Version 3.1 COMPLETE');
             }
             
             setTimeout(setupEventListeners, 100);
@@ -439,41 +441,52 @@
             try {
                 await Excel.run(async (context) => {
                     const worksheets = context.workbook.worksheets;
-                    worksheets.load("count");
+                    worksheets.load("count, items/name");
                     await context.sync();
                     
                     worksheetCount = worksheets.count;
                     debugLog(`Detected ${worksheetCount} worksheets`);
                     
-                    // Always show the audit button, but enable/disable based on sheet count
-                    const auditBtn = document.getElementById('auditBtn');
-                    auditBtn.style.display = 'block';
-                    
                     if (worksheetCount >= 2) {
-                        auditBtn.disabled = false;
-                        auditBtn.textContent = 'Medical Audit Report';
-                        debugLog('Medical Audit Report button enabled');
-                        showStatus(`Medical Audit Report available (${worksheetCount} sheets detected)`, 'success');
-                    } else {
-                        auditBtn.disabled = true;
-                        auditBtn.textContent = `Medical Audit Report (Need 2+ Sheets - Found ${worksheetCount})`;
-                        debugLog('Medical Audit Report button disabled - need more sheets');
+                        // Load both sheets to check for SSN fields
+                        allSheetsData = [];
+                        
+                        for (let i = 0; i < Math.min(2, worksheets.items.length); i++) {
+                            const sheet = worksheets.items[i];
+                            const usedRange = sheet.getUsedRange();
+                            usedRange.load("values");
+                            await context.sync();
+                            
+                            if (!usedRange.isNullObject && usedRange.values && usedRange.values.length > 0) {
+                                const sheetData = {
+                                    name: sheet.name,
+                                    data: usedRange.values,
+                                    headers: usedRange.values[0]
+                                };
+                                allSheetsData.push(sheetData);
+                            }
+                        }
+                        
+                        // Check if both sheets have SSN fields
+                        hasSSNInBothSheets = allSheetsData.length >= 2 && 
+                            allSheetsData.every(sheetData => {
+                                const { ssnFields } = detectFields(sheetData.headers);
+                                return ssnFields.length > 0;
+                            });
+                        
+                        debugLog(`SSN fields in both sheets: ${hasSSNInBothSheets}`);
                     }
                 });
             } catch (error) {
                 debugLog('Error checking worksheet count: ' + error.message);
-                // Still show the button even if there's an error
-                const auditBtn = document.getElementById('auditBtn');
-                auditBtn.style.display = 'block';
-                auditBtn.disabled = true;
-                auditBtn.textContent = 'Medical Audit Report (Error detecting sheets)';
+                hasSSNInBothSheets = false;
             }
         }
 
         function setupEventListeners() {
             const analyzeBtn = document.getElementById('analyzeBtn');
             const processBtn = document.getElementById('processBtn');
-            const auditBtn = document.getElementById('auditBtn');
+            const openEnrollmentBtn = document.getElementById('openEnrollmentBtn');
             
             if (analyzeBtn) {
                 analyzeBtn.addEventListener('click', function(event) {
@@ -489,10 +502,10 @@
                 });
             }
             
-            if (auditBtn) {
-                auditBtn.addEventListener('click', function(event) {
+            if (openEnrollmentBtn) {
+                openEnrollmentBtn.addEventListener('click', function(event) {
                     event.preventDefault();
-                    if (officeReady) runMedicalAuditReport();
+                    if (officeReady) runOpenEnrollmentProcess();
                 });
             }
         }
@@ -639,14 +652,29 @@
             });
             
             const processBtn = document.getElementById('processBtn');
+            const openEnrollmentBtn = document.getElementById('openEnrollmentBtn');
+            
             if (selectedSSNFields.length === 1) {
-                processBtn.disabled = false;
-                showStatus(`Ready to process with SSN field: ${selectedSSNFields[0]}`, 'success');
+                if (hasSSNInBothSheets) {
+                    // Show Open Enrollment button instead of Process button
+                    processBtn.style.display = 'none';
+                    openEnrollmentBtn.style.display = 'block';
+                    openEnrollmentBtn.disabled = false;
+                    showStatus(`Ready for Open Enrollment processing with SSN field: ${selectedSSNFields[0]}`, 'success');
+                } else {
+                    // Show Process button for single sheet processing
+                    processBtn.style.display = 'block';
+                    processBtn.disabled = false;
+                    openEnrollmentBtn.style.display = 'none';
+                    showStatus(`Ready to process with SSN field: ${selectedSSNFields[0]}`, 'success');
+                }
             } else if (selectedSSNFields.length === 0) {
                 processBtn.disabled = true;
+                openEnrollmentBtn.disabled = true;
                 showStatus('Please select exactly one SSN field to continue', 'error');
             } else {
                 processBtn.disabled = true;
+                openEnrollmentBtn.disabled = true;
                 showStatus('Please select only one SSN field. Multiple SSN fields are not supported.', 'error');
             }
         }
@@ -667,6 +695,9 @@
                 updateStepIndicators('analyze');
                 showStatus('Analyzing current sheet...', 'info');
                 updateProgress(25);
+                
+                // Check worksheet count and SSN fields during analysis
+                await checkWorksheetCount();
                 
                 await Excel.run(async (context) => {
                     const worksheet = context.workbook.worksheets.getActiveWorksheet();
@@ -778,7 +809,7 @@
                 throw new Error(`SSN field "${ssnField}" not found in headers`);
             }
             
-            debugLog(`=== PROCESSING VERSION 3.0 - SIMPLIFIED LOGIC ===`);
+            debugLog(`=== PROCESSING VERSION 3.1 - SIMPLIFIED LOGIC ===`);
             debugLog(`Processing ${data.length - 1} data rows`);
             debugLog(`Target date: ${targetDate.toLocaleDateString()}`);
             
@@ -927,53 +958,29 @@
             return null;
         }
 
-        async function runMedicalAuditReport() {
+        async function runOpenEnrollmentProcess() {
             try {
-                debugLog('Starting Medical Audit Report...');
-                showStatus('Running Medical Audit Report...', 'info');
+                debugLog('Starting Open Enrollment process...');
+                showStatus('Running Open Enrollment processing...', 'info');
                 updateProgress(10);
                 
+                if (!hasSSNInBothSheets || allSheetsData.length < 2) {
+                    showStatus('Open Enrollment requires 2 sheets with SSN fields', 'error');
+                    return;
+                }
+                
                 await Excel.run(async (context) => {
-                    const worksheets = context.workbook.worksheets;
-                    worksheets.load("items/name");
-                    await context.sync();
-                    
-                    if (worksheets.items.length < 2) {
-                        showStatus('Medical Audit requires at least 2 worksheets', 'error');
-                        return;
-                    }
-                    
                     updateProgress(25);
                     
-                    // Load Sheet 1 (Current Enrollments)
-                    const sheet1 = worksheets.items[0];
-                    const sheet1Range = sheet1.getUsedRange();
-                    sheet1Range.load("values");
-                    await context.sync();
+                    const sheet1Data = allSheetsData[0];
+                    const sheet2Data = allSheetsData[1];
                     
-                    const sheet1Data = sheet1Range.values;
-                    const sheet1Headers = sheet1Data[0];
-                    
-                    debugLog(`Sheet 1: ${sheet1Data.length} rows, ${sheet1Headers.length} columns`);
-                    
-                    updateProgress(50);
-                    
-                    // Load Sheet 2 (Policy Changes)
-                    const sheet2 = worksheets.items[1];
-                    const sheet2Range = sheet2.getUsedRange();
-                    sheet2Range.load("values");
-                    await context.sync();
-                    
-                    const sheet2Data = sheet2Range.values;
-                    const sheet2Headers = sheet2Data[0];
-                    
-                    debugLog(`Sheet 2: ${sheet2Data.length} rows, ${sheet2Headers.length} columns`);
-                    
-                    updateProgress(75);
+                    debugLog(`Sheet 1: ${sheet1Data.data.length} rows, ${sheet1Data.headers.length} columns`);
+                    debugLog(`Sheet 2: ${sheet2Data.data.length} rows, ${sheet2Data.headers.length} columns`);
                     
                     // Detect SSN fields in both sheets
-                    const sheet1Fields = detectFields(sheet1Headers);
-                    const sheet2Fields = detectFields(sheet2Headers);
+                    const sheet1Fields = detectFields(sheet1Data.headers);
+                    const sheet2Fields = detectFields(sheet2Data.headers);
                     
                     if (sheet1Fields.ssnFields.length === 0 || sheet2Fields.ssnFields.length === 0) {
                         showStatus('Could not find SSN fields in both sheets', 'error');
@@ -986,23 +993,27 @@
                     
                     debugLog(`Using SSN fields: Sheet1="${sheet1SSNField}", Sheet2="${sheet2SSNField}"`);
                     
-                    // Process audit data
+                    updateProgress(50);
+                    
+                    // Process audit data using existing function
                     const auditResults = processAuditData(
-                        sheet1Data, sheet1Headers, sheet1SSNField,
-                        sheet2Data, sheet2Headers, sheet2SSNField
+                        sheet1Data.data, sheet1Data.headers, sheet1SSNField,
+                        sheet2Data.data, sheet2Data.headers, sheet2SSNField
                     );
                     
+                    updateProgress(75);
+                    
                     // Create Audit Report sheet
-                    await createAuditReportSheet(context, auditResults, sheet1Headers, sheet2Headers);
+                    await createAuditReportSheet(context, auditResults, sheet1Data.headers, sheet2Data.headers);
                     
                     updateProgress(100);
-                    showStatus(`Medical Audit Report completed! Processed ${auditResults.length} SSN records.`, 'success');
+                    showStatus(`Open Enrollment processing completed! Processed ${auditResults.length} SSN records.`, 'success');
                     setTimeout(() => updateProgress(0), 1000);
                 });
                 
             } catch (error) {
-                showStatus('Error running Medical Audit Report: ' + error.message, 'error');
-                debugLog('Audit error: ' + error.message);
+                showStatus('Error running Open Enrollment process: ' + error.message, 'error');
+                debugLog('Open Enrollment error: ' + error.message);
                 updateProgress(0);
             }
         }
@@ -1657,11 +1668,11 @@
                 // Add summary
                 const summaryStartRow = currentRow + 2;
                 const summaryData = [
-                    ['PROCESSING SUMMARY v3.0', ''],
+                    ['PROCESSING SUMMARY v3.1', ''],
                     ['Total Unique SSNs:', Object.keys(ssnGroups).length],
                     ['Total Original Rows:', Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)],
                     ['Total Consolidated Rows:', Object.keys(ssnGroups).length],
-                    ['Logic Version:', 'Simplified v3.0 - Exclude only if ALL costs > $0 AND NO dates in range'],
+                    ['Logic Version:', 'Simplified v3.1 - Exclude only if ALL costs > $0 AND NO dates in range'],
                     ['Processing Date:', new Date().toLocaleDateString()],
                     ['Processing Time:', new Date().toLocaleTimeString()]
                 ];
@@ -1719,7 +1730,7 @@
                 });
                 
                 const summaryData = [
-                    ["Enrollment Data Processing Summary v3.0", ""],
+                    ["Enrollment Data Processing Summary v3.1", ""],
                     ["", ""],
                     ["BASIC INFORMATION", ""],
                     ["Policy Change Date", policyChangeDate.toLocaleDateString()],
@@ -1740,7 +1751,7 @@
                     ["Total Dollar Amount", totalDollarAmount],
                     ["Average per SSN", totalSSNs > 0 ? (totalDollarAmount / totalSSNs) : 0],
                     ["", ""],
-                    ["SIMPLIFIED LOGIC v3.0", ""],
+                    ["SIMPLIFIED LOGIC v3.1", ""],
                     ["Rule 1", "EXCLUDE: SSNs where ALL rows have cost > $0 AND ALL date fields NOT in target range"],
                     ["Rule 2", "INCLUDE: All other SSN combinations (ANY date match OR ANY zero/null values)"],
                     ["Rule 3", "All rows for included SSNs are consolidated into single row"],
@@ -1752,7 +1763,7 @@
                     ["Processing Date", new Date().toLocaleDateString()],
                     ["Processing Time", new Date().toLocaleTimeString()],
                     ["Debug Mode", debugMode ? "Enabled" : "Disabled"],
-                    ["Version", "3.0 COMPLETE - Simplified Logic"]
+                    ["Version", "3.1 COMPLETE - Simplified Logic + Open Enrollment"]
                 ];
                 
                 for (let i = 0; i < summaryData.length; i++) {
@@ -1820,18 +1831,20 @@
             
             if (event.ctrlKey && event.altKey && event.key === '3') {
                 event.preventDefault();
-                if (officeReady && worksheetCount >= 2) runMedicalAuditReport();
+                if (officeReady && hasSSNInBothSheets) runOpenEnrollmentProcess();
             }
         });
 
-        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.0 COMPLETE ===');
-        console.log('New Features in v3.0:');
-        console.log('- Simplified inclusion logic: Exclude only if ALL costs > $0 AND ALL dates NOT in range');
-        console.log('- Medical Audit Report: Compares 2 sheets and shows OLD vs NEW coverage with costs');
+        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.1 COMPLETE ===');
+        console.log('New Features in v3.1:');
+        console.log('- Open Enrollment button replaces Process button when 2+ sheets with SSN fields detected');
+        console.log('- Step 1: Analyze now checks for SSN fields in multiple sheets');
+        console.log('- Step 2: Process for single sheet, Step 2: Open Enrollment for multi-sheet processing');
         console.log('- Healthcare abbreviation expansion (EE, ES, PPO, HMO, etc.)');
         console.log('- Fuzzy matching for coverage names between sheets');
+        console.log('- Simplified inclusion logic: Exclude only if ALL costs > $0 AND ALL dates NOT in range');
         console.log('- Enhanced error handling and debugging');
-        console.log('- Keyboard shortcuts: Ctrl+Alt+1 (analyze), Ctrl+Alt+2 (process), Ctrl+Alt+3 (audit)');
+        console.log('- Keyboard shortcuts: Ctrl+Alt+1 (analyze), Ctrl+Alt+2 (process), Ctrl+Alt+3 (open enrollment)');
         console.log('=== READY FOR USE ===');
     </script>
 </body>
