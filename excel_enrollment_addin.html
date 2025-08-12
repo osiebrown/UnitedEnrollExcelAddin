@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enrollment Data Processor v3.2 COMPLETE</title>
+    <title>Enrollment Data Processor v3.3 COMPLETE</title>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
     <style>
         body {
@@ -189,6 +189,11 @@
             border-left: 4px solid #ffc107;
         }
         
+        .field-checkbox.data-detected {
+            background-color: #d4edda;
+            border-left: 4px solid #28a745;
+        }
+        
         .progress {
             width: 100%;
             height: 20px;
@@ -283,7 +288,7 @@
             <span class="logo-united">UNITED</span>
             <span class="logo-enroll">ENROLL</span>
         </div>
-        <h1>Enrollment Data Processor v3.2</h1>
+        <h1>Enrollment Data Processor v3.3</h1>
         
         <div class="date-input-section">
             <label for="policyDate">Policy Change Date:</label>
@@ -305,7 +310,7 @@
                 <h3>SSN Fields Found:</h3>
                 <div id="ssnFieldCheckboxes"></div>
                 <div class="date-info">
-                    <strong>Note:</strong> Only one SSN field should be selected.
+                    <strong>Note:</strong> Only one SSN field should be selected. Green highlighting indicates data-based detection.
                 </div>
             </div>
             
@@ -320,14 +325,14 @@
             </div>
             
             <div class="zero-null-info">
-                <strong>Simplified Logic v3.2:</strong> 
+                <strong>Enhanced Logic v3.3:</strong> 
                 <ul style="margin: 5px 0; padding-left: 20px;">
                     <li><strong>EXCLUDE:</strong> SSNs where ALL rows have cost > $0 AND ALL date fields are NOT in the target date range</li>
                     <li><strong>INCLUDE:</strong> All other SSN combinations (ANY date match OR ANY zero/null cost OR ANY zero/null date)</li>
                     <li>Multiple rows per SSN consolidated into ONE row with combined data</li>
                     <li>Dollar amounts summed across all rows per SSN</li>
                     <li>Plan/coverage fields show costs as "Plan Name ($Cost) | Plan Name ($Cost)"</li>
-                    <li><strong>NEW v3.2:</strong> Open Enrollment mode with SSN field selection for each sheet</li>
+                    <li><strong>ENHANCED:</strong> SSN detection now scans actual data patterns (XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX)</li>
                 </ul>
             </div>
         </div>
@@ -365,7 +370,7 @@
     </div>
 
     <script>
-        console.log('=== SCRIPT LOADING - VERSION 3.0 COMPLETE ===');
+        console.log('=== SCRIPT LOADING - VERSION 3.3 ENHANCED SSN DETECTION ===');
         
         let detectedHeaders = [];
         let currentSheetData = [];
@@ -418,7 +423,7 @@
         };
 
         Office.onReady((info) => {
-            console.log('=== OFFICE.JS READY - VERSION 3.2 COMPLETE ===');
+            console.log('=== OFFICE.JS READY - VERSION 3.3 ENHANCED ===');
             console.log('Host:', info.host);
             console.log('Platform:', info.platform);
             
@@ -433,15 +438,179 @@
             
             if (debugMode) {
                 document.getElementById('debugInfo').style.display = 'block';
-                debugLog('Debug mode enabled - Version 3.2 COMPLETE');
+                debugLog('Debug mode enabled - Version 3.3 ENHANCED SSN DETECTION');
             }
             
             setTimeout(setupEventListeners, 100);
         });
 
+        function isSSNPattern(value) {
+            if (!value) return false;
+            
+            const cleanValue = String(value).replace(/\s+/g, '').trim();
+            
+            // Pattern 1: XXX-XX-XXXX
+            if (/^\d{3}-\d{2}-\d{4}$/.test(cleanValue)) {
+                debugLog(`  SSN Pattern Match (XXX-XX-XXXX): "${cleanValue}"`);
+                return true;
+            }
+            
+            // Pattern 2: XXXXXXXXX (9 digits)
+            if (/^\d{9}$/.test(cleanValue)) {
+                debugLog(`  SSN Pattern Match (XXXXXXXXX): "${cleanValue}"`);
+                return true;
+            }
+            
+            // Pattern 3: XXX XX XXXX (spaces)
+            const originalValue = String(value).trim();
+            if (/^\d{3}\s\d{2}\s\d{4}$/.test(originalValue)) {
+                debugLog(`  SSN Pattern Match (XXX XX XXXX): "${originalValue}"`);
+                return true;
+            }
+            
+            // Pattern 4: XXX XXXXXX (3 digits, space, 6 digits)
+            if (/^\d{3}\s\d{6}$/.test(originalValue)) {
+                debugLog(`  SSN Pattern Match (XXX XXXXXX): "${originalValue}"`);
+                return true;
+            }
+            
+            return false;
+        }
+
+        function scanColumnForSSNPatterns(data, columnIndex, headerName) {
+            let ssnCount = 0;
+            let totalNonEmptyValues = 0;
+            const sampleValues = [];
+            
+            debugLog(`Scanning column ${columnIndex} ("${headerName}") for SSN patterns...`);
+            
+            // Scan first 10 rows of data (skip header row)
+            const scanRows = Math.min(10, data.length - 1);
+            for (let i = 1; i <= scanRows; i++) {
+                if (i < data.length && data[i] && data[i][columnIndex] !== undefined) {
+                    const value = data[i][columnIndex];
+                    if (value !== null && value !== '' && value !== undefined) {
+                        totalNonEmptyValues++;
+                        
+                        if (isSSNPattern(value)) {
+                            ssnCount++;
+                            sampleValues.push(String(value));
+                        }
+                    }
+                }
+            }
+            
+            const ssnPercentage = totalNonEmptyValues > 0 ? (ssnCount / totalNonEmptyValues) : 0;
+            const isSSNColumn = ssnPercentage >= 0.7; // At least 70% of non-empty values must be SSN patterns
+            
+            debugLog(`  Scanned ${scanRows} rows: ${ssnCount}/${totalNonEmptyValues} SSN patterns (${(ssnPercentage * 100).toFixed(1)}%)`);
+            if (sampleValues.length > 0) {
+                debugLog(`  Sample SSN values: ${sampleValues.slice(0, 3).join(', ')}`);
+            }
+            debugLog(`  Column "${headerName}" SSN detection: ${isSSNColumn ? 'DETECTED' : 'NOT DETECTED'}`);
+            
+            return {
+                isSSN: isSSNColumn,
+                ssnCount: ssnCount,
+                totalValues: totalNonEmptyValues,
+                percentage: ssnPercentage,
+                samples: sampleValues.slice(0, 3)
+            };
+        }
+
+        function detectFields(headers, data = null) {
+            const ssnFields = [];
+            const dateFields = [];
+            const costFields = [];
+            
+            debugLog(`=== ENHANCED FIELD DETECTION v3.3 ===`);
+            debugLog(`Detecting fields in ${headers.length} headers with ${data ? 'DATA SCANNING' : 'HEADER-ONLY'} analysis`);
+            
+            headers.forEach((header, index) => {
+                if (typeof header === 'string') {
+                    const headerLower = header.toLowerCase().trim();
+                    
+                    // Enhanced SSN detection: Check both header AND data patterns
+                    let isSSNByHeader = false;
+                    let isSSNByData = false;
+                    let detectionMethod = '';
+                    
+                    // Header-based detection
+                    if (headerLower.includes('ssn') || 
+                        headerLower.includes('social security') ||
+                        headerLower.includes('social security number') ||
+                        headerLower.includes('employee ssn') ||
+                        headerLower.includes('emp ssn') ||
+                        headerLower.includes('socialSecurity') ||
+                        headerLower === 'ssn' ||
+                        headerLower === 'social' ||
+                        (headerLower.includes('social') && headerLower.includes('security')) ||
+                        (headerLower.includes('social') && headerLower.includes('number'))) {
+                        isSSNByHeader = true;
+                        detectionMethod = 'header';
+                    }
+                    
+                    // Data-based detection
+                    if (data && data.length > 1) {
+                        const dataAnalysis = scanColumnForSSNPatterns(data, index, header);
+                        if (dataAnalysis.isSSN) {
+                            isSSNByData = true;
+                            detectionMethod = isSSNByHeader ? 'header+data' : 'data';
+                        }
+                    }
+                    
+                    // Include column if either header or data analysis indicates SSN
+                    if (isSSNByHeader || isSSNByData) {
+                        ssnFields.push({ 
+                            name: header, 
+                            index: index, 
+                            detectionMethod: detectionMethod,
+                            byHeader: isSSNByHeader,
+                            byData: isSSNByData
+                        });
+                        debugLog(`  ✓ SSN field found: "${header}" (${detectionMethod})`);
+                    }
+                    
+                    // Date field detection (unchanged)
+                    if (headerLower.includes('date') || 
+                        headerLower.includes('dob') ||
+                        headerLower.includes('enrolled') ||
+                        headerLower.includes('hire') ||
+                        headerLower.includes('start') ||
+                        headerLower.includes('effective') ||
+                        headerLower.includes('created') ||
+                        headerLower.includes('modified')) {
+                        dateFields.push({ name: header, index: index });
+                        debugLog(`  ✓ Date field found: "${header}"`);
+                    }
+                    
+                    // Cost field detection (unchanged)
+                    if (headerLower.includes('cost') || 
+                        headerLower.includes('amount') || 
+                        headerLower.includes('fee') || 
+                        headerLower.includes('price') || 
+                        headerLower.includes('premium') || 
+                        headerLower.includes('rate') ||
+                        headerLower.includes('total') ||
+                        headerLower.includes('charge')) {
+                        costFields.push({ name: header, index: index });
+                        debugLog(`  ✓ Cost field found: "${header}"`);
+                    }
+                }
+            });
+            
+            debugLog(`=== FIELD DETECTION COMPLETE ===`);
+            debugLog(`Found ${ssnFields.length} SSN fields, ${dateFields.length} date fields, ${costFields.length} cost fields`);
+            ssnFields.forEach(field => {
+                debugLog(`  SSN: "${field.name}" - detected by ${field.detectionMethod}`);
+            });
+            
+            return { ssnFields, dateFields, costFields };
+        }
+
         async function checkWorksheetCount() {
             try {
-                debugLog('=== CHECKING WORKSHEET COUNT v3.2 ===');
+                debugLog('=== CHECKING WORKSHEET COUNT v3.3 ===');
                 await Excel.run(async (context) => {
                     const worksheets = context.workbook.worksheets;
                     worksheets.load("count, items/name");
@@ -451,11 +620,12 @@
                     debugLog(`Detected ${worksheetCount} worksheets`);
                     
                     if (worksheetCount >= 2) {
-                        // Load both sheets to check for SSN fields
                         allSheetsData = [];
                         
                         for (let i = 0; i < Math.min(2, worksheets.items.length); i++) {
                             const sheet = worksheets.items[i];
+                            debugLog(`Loading sheet ${i}: "${sheet.name}"`);
+                            
                             const usedRange = sheet.getUsedRange();
                             usedRange.load("values");
                             await context.sync();
@@ -467,30 +637,45 @@
                                     headers: usedRange.values[0]
                                 };
                                 allSheetsData.push(sheetData);
-                                debugLog(`  Loaded sheet "${sheet.name}" with ${usedRange.values.length} rows`);
+                                debugLog(`  Successfully loaded sheet "${sheet.name}" with ${usedRange.values.length} rows`);
+                            } else {
+                                debugLog(`  Sheet "${sheet.name}" has no data or is empty`);
                             }
                         }
                         
-                        // Check if both sheets have SSN fields
+                        // Check if both sheets have SSN fields with enhanced detection
                         let sheet1HasSSN = false;
                         let sheet2HasSSN = false;
+                        let sheet1SSNFields = [];
+                        let sheet2SSNFields = [];
                         
                         if (allSheetsData.length >= 2) {
-                            const sheet1Fields = detectFields(allSheetsData[0].headers);
-                            const sheet2Fields = detectFields(allSheetsData[1].headers);
+                            const sheet1Fields = detectFields(allSheetsData[0].headers, allSheetsData[0].data);
+                            const sheet2Fields = detectFields(allSheetsData[1].headers, allSheetsData[1].data);
                             
-                            sheet1HasSSN = sheet1Fields.ssnFields.length > 0;
-                            sheet2HasSSN = sheet2Fields.ssnFields.length > 0;
+                            sheet1SSNFields = sheet1Fields.ssnFields;
+                            sheet2SSNFields = sheet2Fields.ssnFields;
                             
-                            debugLog(`  Sheet 1 "${allSheetsData[0].name}" SSN fields: ${sheet1Fields.ssnFields.length}`);
-                            debugLog(`  Sheet 2 "${allSheetsData[1].name}" SSN fields: ${sheet2Fields.ssnFields.length}`);
+                            sheet1HasSSN = sheet1SSNFields.length > 0;
+                            sheet2HasSSN = sheet2SSNFields.length > 0;
+                            
+                            debugLog(`  Sheet 1 "${allSheetsData[0].name}" SSN fields found: ${sheet1SSNFields.length}`);
+                            sheet1SSNFields.forEach(field => debugLog(`    - ${field.name} (${field.detectionMethod})`));
+                            
+                            debugLog(`  Sheet 2 "${allSheetsData[1].name}" SSN fields found: ${sheet2SSNFields.length}`);
+                            sheet2SSNFields.forEach(field => debugLog(`    - ${field.name} (${field.detectionMethod})`));
                         }
                         
                         hasSSNInBothSheets = sheet1HasSSN && sheet2HasSSN;
-                        debugLog(`SSN fields in both sheets: ${hasSSNInBothSheets}`);
+                        debugLog(`=== FINAL RESULT: SSN fields in both sheets: ${hasSSNInBothSheets} ===`);
                         
                         if (hasSSNInBothSheets) {
+                            debugLog('Creating two-sheet SSN selections...');
                             createTwoSheetSSNSelections();
+                        } else {
+                            debugLog('Not creating two-sheet selections - insufficient SSN fields');
+                            if (!sheet1HasSSN) debugLog(`  Sheet 1 missing SSN fields`);
+                            if (!sheet2HasSSN) debugLog(`  Sheet 2 missing SSN fields`);
                         }
                     } else {
                         hasSSNInBothSheets = false;
@@ -499,6 +684,7 @@
                 });
             } catch (error) {
                 debugLog('Error checking worksheet count: ' + error.message);
+                console.error('Worksheet count error:', error);
                 hasSSNInBothSheets = false;
                 allSheetsData = [];
             }
@@ -510,13 +696,11 @@
             const sheet1Data = allSheetsData[0];
             const sheet2Data = allSheetsData[1];
             
-            // Update sheet names in the UI
             document.getElementById('sheet1Name').textContent = `${sheet1Data.name} SSN Field:`;
             document.getElementById('sheet2Name').textContent = `${sheet2Data.name} SSN Field:`;
             
-            // Create SSN field selections for both sheets
-            createSheetSSNCheckboxes('sheet1SSNFields', detectFields(sheet1Data.headers).ssnFields, 'sheet1');
-            createSheetSSNCheckboxes('sheet2SSNFields', detectFields(sheet2Data.headers).ssnFields, 'sheet2');
+            createSheetSSNCheckboxes('sheet1SSNFields', detectFields(sheet1Data.headers, sheet1Data.data).ssnFields, 'sheet1');
+            createSheetSSNCheckboxes('sheet2SSNFields', detectFields(sheet2Data.headers, sheet2Data.data).ssnFields, 'sheet2');
             
             debugLog('Created SSN field selections for both sheets');
         }
@@ -532,19 +716,19 @@
             
             ssnFields.forEach((field, index) => {
                 const checkboxDiv = document.createElement('div');
-                checkboxDiv.className = 'field-checkbox highlighted';
+                checkboxDiv.className = field.byData ? 'field-checkbox data-detected' : 'field-checkbox highlighted';
                 
                 const checkbox = document.createElement('input');
-                checkbox.type = 'radio'; // Use radio buttons to ensure only one selection per sheet
+                checkbox.type = 'radio';
                 checkbox.name = `${sheetPrefix}_ssn`;
                 checkbox.id = `${sheetPrefix}_ssn_${index}`;
                 checkbox.value = field.name;
-                checkbox.checked = index === 0; // Select first one by default
+                checkbox.checked = index === 0;
                 checkbox.addEventListener('change', updateTwoSheetSelections);
                 
                 const label = document.createElement('label');
                 label.htmlFor = `${sheetPrefix}_ssn_${index}`;
-                label.textContent = field.name;
+                label.textContent = `${field.name} (${field.detectionMethod})`;
                 
                 checkboxDiv.appendChild(checkbox);
                 checkboxDiv.appendChild(label);
@@ -553,7 +737,6 @@
         }
 
         function updateTwoSheetSelections() {
-            // Get selected SSN fields from both sheets
             const sheet1Radio = document.querySelector('input[name="sheet1_ssn"]:checked');
             const sheet2Radio = document.querySelector('input[name="sheet2_ssn"]:checked');
             
@@ -651,48 +834,6 @@
             }
         }
 
-        function detectFields(headers) {
-            const ssnFields = [];
-            const dateFields = [];
-            const costFields = [];
-            
-            headers.forEach((header, index) => {
-                if (typeof header === 'string') {
-                    const headerLower = header.toLowerCase();
-                    
-                    if (headerLower.includes('ssn') || 
-                        headerLower.includes('social security') ||
-                        headerLower.includes('employee ssn')) {
-                        ssnFields.push({ name: header, index: index });
-                    }
-                    
-                    if (headerLower.includes('date') || 
-                        headerLower.includes('dob') ||
-                        headerLower.includes('enrolled') ||
-                        headerLower.includes('hire') ||
-                        headerLower.includes('start') ||
-                        headerLower.includes('effective') ||
-                        headerLower.includes('created') ||
-                        headerLower.includes('modified')) {
-                        dateFields.push({ name: header, index: index });
-                    }
-                    
-                    if (headerLower.includes('cost') || 
-                        headerLower.includes('amount') || 
-                        headerLower.includes('fee') || 
-                        headerLower.includes('price') || 
-                        headerLower.includes('premium') || 
-                        headerLower.includes('rate') ||
-                        headerLower.includes('total') ||
-                        headerLower.includes('charge')) {
-                        costFields.push({ name: header, index: index });
-                    }
-                }
-            });
-            
-            return { ssnFields, dateFields, costFields };
-        }
-
         function createSSNFieldCheckboxes(fields) {
             const container = document.getElementById('ssnFieldCheckboxes');
             container.innerHTML = '';
@@ -704,7 +845,8 @@
             
             fields.forEach((field, index) => {
                 const checkboxDiv = document.createElement('div');
-                checkboxDiv.className = 'field-checkbox highlighted';
+                // Use different styling based on detection method
+                checkboxDiv.className = field.byData ? 'field-checkbox data-detected' : 'field-checkbox highlighted';
                 
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
@@ -715,7 +857,7 @@
                 
                 const label = document.createElement('label');
                 label.htmlFor = `ssn_${index}`;
-                label.textContent = field.name;
+                label.textContent = `${field.name} (${field.detectionMethod})`;
                 
                 checkboxDiv.appendChild(checkbox);
                 checkboxDiv.appendChild(label);
@@ -747,12 +889,10 @@
             
             if (selectedSSNFields.length === 1) {
                 if (hasSSNInBothSheets) {
-                    // Show Open Enrollment button and configuration section
                     processBtn.style.display = 'none';
                     openEnrollmentBtn.style.display = 'block';
                     auditSection.style.display = 'block';
                     
-                    // Check if both sheet SSN fields are selected
                     if (selectedSheet1SSN && selectedSheet2SSN) {
                         openEnrollmentBtn.disabled = false;
                         showStatus(`Ready for Open Enrollment processing`, 'success');
@@ -761,7 +901,6 @@
                         showStatus('Please select SSN fields from both sheets below', 'info');
                     }
                 } else {
-                    // Show Process button for single sheet processing
                     processBtn.style.display = 'block';
                     processBtn.disabled = false;
                     openEnrollmentBtn.style.display = 'none';
@@ -783,7 +922,7 @@
 
         async function analyzeCurrentSheet() {
             try {
-                debugLog('=== STARTING ANALYSIS v3.2 ===');
+                debugLog('=== STARTING ANALYSIS v3.3 ENHANCED ===');
                 
                 const dateInput = document.getElementById('policyDate');
                 if (!dateInput.value) {
@@ -795,13 +934,13 @@
                 debugLog(`Policy change date set to: ${policyChangeDate.toLocaleDateString()}`);
                 
                 updateStepIndicators('analyze');
-                showStatus('Analyzing current sheet and checking for multiple sheets...', 'info');
+                showStatus('Analyzing current sheet with enhanced SSN detection...', 'info');
                 updateProgress(10);
                 
-                // CRITICAL: Check worksheet count and SSN fields FIRST
                 await checkWorksheetCount();
                 
                 updateProgress(25);
+                debugLog(`After worksheet check: hasSSNInBothSheets = ${hasSSNInBothSheets}`);
                 
                 await Excel.run(async (context) => {
                     const worksheet = context.workbook.worksheets.getActiveWorksheet();
@@ -828,9 +967,13 @@
                     detectedHeaders = data[0];
                     debugLog(`Loaded ${data.length} rows with ${detectedHeaders.length} columns from active sheet`);
                     
-                    const { ssnFields, dateFields, costFields } = detectFields(detectedHeaders);
+                    // Use enhanced field detection with data scanning
+                    const { ssnFields, dateFields, costFields } = detectFields(detectedHeaders, data);
                     detectedDateFields = dateFields;
                     detectedCostFields = costFields;
+                    
+                    debugLog(`Active sheet SSN fields found: ${ssnFields.length}`);
+                    ssnFields.forEach(field => debugLog(`  - ${field.name} (${field.detectionMethod})`));
                     
                     updateProgress(75);
                     
@@ -840,20 +983,21 @@
                     
                     document.getElementById('fieldSelection').style.display = 'block';
                     
-                    // Update the button display based on multi-sheet detection
+                    debugLog(`About to call updateSelectedFields with hasSSNInBothSheets = ${hasSSNInBothSheets}`);
                     updateSelectedFields();
                     
                     updateProgress(100);
                     setTimeout(() => updateProgress(0), 1000);
                     
-                    debugLog(`=== ANALYSIS COMPLETE v3.2 ===`);
+                    debugLog(`=== ANALYSIS COMPLETE v3.3 ENHANCED ===`);
                     debugLog(`Multi-sheet mode: ${hasSSNInBothSheets}`);
-                    debugLog(`Sheets available: ${allSheetsData.length}`);
+                    debugLog(`Enhanced SSN detection complete`);
                 });
                 
             } catch (error) {
                 showStatus('Error analyzing sheet: ' + error.message, 'error');
                 debugLog('Analysis error: ' + error.message);
+                console.error('Analysis error:', error);
                 updateProgress(0);
             }
         }
@@ -919,7 +1063,7 @@
                 throw new Error(`SSN field "${ssnField}" not found in headers`);
             }
             
-            debugLog(`=== PROCESSING VERSION 3.2 - SIMPLIFIED LOGIC ===`);
+            debugLog(`=== PROCESSING VERSION 3.3 - ENHANCED SSN DETECTION ===`);
             debugLog(`Processing ${data.length - 1} data rows`);
             debugLog(`Target date: ${targetDate.toLocaleDateString()}`);
             
@@ -1070,7 +1214,7 @@
 
         async function runOpenEnrollmentProcess() {
             try {
-                debugLog('=== STARTING OPEN ENROLLMENT PROCESS v3.2 ===');
+                debugLog('=== STARTING OPEN ENROLLMENT PROCESS v3.3 ===');
                 showStatus('Running Open Enrollment processing...', 'info');
                 updateProgress(10);
                 
@@ -1115,6 +1259,7 @@
             } catch (error) {
                 showStatus('Error running Open Enrollment process: ' + error.message, 'error');
                 debugLog('Open Enrollment error: ' + error.message);
+                console.error('Open Enrollment error:', error);
                 updateProgress(0);
             }
         }
@@ -1671,7 +1816,7 @@
                 
                 if (Object.keys(ssnGroups).length === 0) {
                     const noDataRange = newSheet.getRange("A1");
-                    noDataRange.values = [["No policy changes found matching the simplified criteria"]];
+                    noDataRange.values = [["No policy changes found matching the enhanced criteria"]];
                     noDataRange.format.font.bold = true;
                     await context.sync();
                     return;
@@ -1721,7 +1866,7 @@
                     
                     let notes = '';
                     if (consolidatedRow._originalRowCount > 1) {
-                        notes = `Consolidated ${consolidatedRow._originalRowCount} rows using simplified v3.0 logic. `;
+                        notes = `Consolidated ${consolidatedRow._originalRowCount} rows using enhanced v3.3 logic with data-based SSN detection. `;
                         notes += 'Plan/coverage fields show individual plan costs as "Plan Name ($Cost)".';
                     } else {
                         notes = 'Single row - no consolidation needed';
@@ -1769,11 +1914,12 @@
                 // Add summary
                 const summaryStartRow = currentRow + 2;
                 const summaryData = [
-                    ['PROCESSING SUMMARY v3.2', ''],
+                    ['PROCESSING SUMMARY v3.3 ENHANCED', ''],
                     ['Total Unique SSNs:', Object.keys(ssnGroups).length],
                     ['Total Original Rows:', Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)],
                     ['Total Consolidated Rows:', Object.keys(ssnGroups).length],
-                    ['Logic Version:', 'Simplified v3.2 - SSN field selection + multi-sheet processing'],
+                    ['Logic Version:', 'Enhanced v3.3 - Data-based SSN pattern detection'],
+                    ['SSN Detection:', 'Header analysis + data pattern scanning (XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX)'],
                     ['Processing Date:', new Date().toLocaleDateString()],
                     ['Processing Time:', new Date().toLocaleTimeString()]
                 ];
@@ -1831,7 +1977,7 @@
                 });
                 
                 const summaryData = [
-                    ["Enrollment Data Processing Summary v3.2", ""],
+                    ["Enrollment Data Processing Summary v3.3 ENHANCED", ""],
                     ["", ""],
                     ["BASIC INFORMATION", ""],
                     ["Policy Change Date", policyChangeDate.toLocaleDateString()],
@@ -1852,7 +1998,13 @@
                     ["Total Dollar Amount", totalDollarAmount],
                     ["Average per SSN", totalSSNs > 0 ? (totalDollarAmount / totalSSNs) : 0],
                     ["", ""],
-                    ["SIMPLIFIED LOGIC v3.2", ""],
+                    ["ENHANCED SSN DETECTION v3.3", ""],
+                    ["Detection Method", "Header analysis + data pattern scanning"],
+                    ["Supported Patterns", "XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX, XXX XXXXXX"],
+                    ["Scan Depth", "First 10 rows of data per column"],
+                    ["Threshold", "70% of non-empty values must match SSN patterns"],
+                    ["", ""],
+                    ["SIMPLIFIED LOGIC v3.3", ""],
                     ["Rule 1", "EXCLUDE: SSNs where ALL rows have cost > $0 AND ALL date fields NOT in target range"],
                     ["Rule 2", "INCLUDE: All other SSN combinations (ANY date match OR ANY zero/null values)"],
                     ["Rule 3", "All rows for included SSNs are consolidated into single row"],
@@ -1864,7 +2016,7 @@
                     ["Processing Date", new Date().toLocaleDateString()],
                     ["Processing Time", new Date().toLocaleTimeString()],
                     ["Debug Mode", debugMode ? "Enabled" : "Disabled"],
-                    ["Version", "3.2 COMPLETE - SSN Field Selection for Multi-Sheet Processing"]
+                    ["Version", "3.3 ENHANCED - Data-based SSN Pattern Detection"]
                 ];
                 
                 for (let i = 0; i < summaryData.length; i++) {
@@ -1879,7 +2031,7 @@
                         rowRange.format.fill.color = "#0078d4";
                         rowRange.format.font.color = "white";
                         rowRange.format.horizontalAlignment = "Center";
-                    } else if (content.includes("INFORMATION") || content.includes("RESULTS") || content.includes("SUMMARY") || content.includes("LOGIC") || content.includes("METADATA")) {
+                    } else if (content.includes("INFORMATION") || content.includes("RESULTS") || content.includes("SUMMARY") || content.includes("LOGIC") || content.includes("METADATA") || content.includes("DETECTION")) {
                         rowRange.format.font.bold = true;
                         rowRange.format.fill.color = "#E3F2FD";
                         rowRange.format.font.color = "#1976D2";
@@ -1936,15 +2088,15 @@
             }
         });
 
-        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.2 COMPLETE ===');
-        console.log('New Features in v3.2:');
-        console.log('- Fixed multi-sheet detection during Step 1: Analyze');
-        console.log('- User can select specific SSN fields from each sheet (radio buttons)');
-        console.log('- Shows sheet names and field names clearly in UI');
-        console.log('- Open Enrollment button only appears when both sheets have SSN fields');
-        console.log('- Enhanced debugging and status messages');
-        console.log('- Healthcare abbreviation expansion (EE, ES, PPO, HMO, etc.)');
-        console.log('- Fuzzy matching for coverage names between sheets');
+        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.3 ENHANCED SSN DETECTION ===');
+        console.log('Enhanced Features in v3.3:');
+        console.log('- DATA-BASED SSN DETECTION: Scans actual column data for SSN patterns');
+        console.log('- Supported SSN Patterns: XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX, XXX XXXXXX');
+        console.log('- Smart Detection: Scans first 10 rows, requires 70% pattern match');
+        console.log('- Visual Indicators: Green highlighting for data-detected fields');
+        console.log('- Detection Method Display: Shows "(header)", "(data)", or "(header+data)"');
+        console.log('- Enhanced Multi-sheet Support: Uses data scanning for both sheets');
+        console.log('- Maintains all existing functionality: Open Enrollment, abbreviation expansion, fuzzy matching');
         console.log('- Simplified inclusion logic: Exclude only if ALL costs > $0 AND ALL dates NOT in range');
         console.log('- Keyboard shortcuts: Ctrl+Alt+1 (analyze), Ctrl+Alt+2 (process), Ctrl+Alt+3 (open enrollment)');
         console.log('=== READY FOR USE ===');
