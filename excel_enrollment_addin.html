@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enrollment Data Processor v3.1 COMPLETE</title>
+    <title>Enrollment Data Processor v3.2 COMPLETE</title>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
     <style>
         body {
@@ -283,7 +283,7 @@
             <span class="logo-united">UNITED</span>
             <span class="logo-enroll">ENROLL</span>
         </div>
-        <h1>Enrollment Data Processor v3.1</h1>
+        <h1>Enrollment Data Processor v3.2</h1>
         
         <div class="date-input-section">
             <label for="policyDate">Policy Change Date:</label>
@@ -320,14 +320,14 @@
             </div>
             
             <div class="zero-null-info">
-                <strong>Simplified Logic v3.1:</strong> 
+                <strong>Simplified Logic v3.2:</strong> 
                 <ul style="margin: 5px 0; padding-left: 20px;">
                     <li><strong>EXCLUDE:</strong> SSNs where ALL rows have cost > $0 AND ALL date fields are NOT in the target date range</li>
                     <li><strong>INCLUDE:</strong> All other SSN combinations (ANY date match OR ANY zero/null cost OR ANY zero/null date)</li>
                     <li>Multiple rows per SSN consolidated into ONE row with combined data</li>
                     <li>Dollar amounts summed across all rows per SSN</li>
                     <li>Plan/coverage fields show costs as "Plan Name ($Cost) | Plan Name ($Cost)"</li>
-                    <li><strong>NEW v3.1:</strong> Open Enrollment mode available when 2+ sheets with SSN fields detected</li>
+                    <li><strong>NEW v3.2:</strong> Open Enrollment mode with SSN field selection for each sheet</li>
                 </ul>
             </div>
         </div>
@@ -341,17 +341,17 @@
         </button>
         
         <div id="auditSection" class="audit-section">
-            <h3>Medical Audit Configuration</h3>
+            <h3>Open Enrollment Configuration</h3>
             <div class="sheet-selection">
-                <h4>Sheet 1 (Current Enrollments) SSN Field:</h4>
+                <h4 id="sheet1Name">Sheet 1 SSN Field:</h4>
                 <div id="sheet1SSNFields"></div>
             </div>
             <div class="sheet-selection">
-                <h4>Sheet 2 (Policy Changes) SSN Field:</h4>
+                <h4 id="sheet2Name">Sheet 2 SSN Field:</h4>
                 <div id="sheet2SSNFields"></div>
             </div>
             <div class="date-info">
-                <strong>Audit Process:</strong> Matches abbreviated coverage types from Sheet 2 to full names in Sheet 1, showing OLD vs NEW coverage with costs.
+                <strong>Open Enrollment Process:</strong> Matches abbreviated coverage types from Sheet 2 to full names in Sheet 1, showing OLD vs NEW coverage with costs.
             </div>
         </div>
         
@@ -378,6 +378,8 @@
         let worksheetCount = 0;
         let allSheetsData = [];
         let hasSSNInBothSheets = false;
+        let selectedSheet1SSN = '';
+        let selectedSheet2SSN = '';
         
         // Healthcare abbreviations mapping
         const healthcareAbbreviations = {
@@ -416,7 +418,7 @@
         };
 
         Office.onReady((info) => {
-            console.log('=== OFFICE.JS READY - VERSION 3.1 COMPLETE ===');
+            console.log('=== OFFICE.JS READY - VERSION 3.2 COMPLETE ===');
             console.log('Host:', info.host);
             console.log('Platform:', info.platform);
             
@@ -431,7 +433,7 @@
             
             if (debugMode) {
                 document.getElementById('debugInfo').style.display = 'block';
-                debugLog('Debug mode enabled - Version 3.1 COMPLETE');
+                debugLog('Debug mode enabled - Version 3.2 COMPLETE');
             }
             
             setTimeout(setupEventListeners, 100);
@@ -439,6 +441,7 @@
 
         async function checkWorksheetCount() {
             try {
+                debugLog('=== CHECKING WORKSHEET COUNT v3.2 ===');
                 await Excel.run(async (context) => {
                     const worksheets = context.workbook.worksheets;
                     worksheets.load("count, items/name");
@@ -464,22 +467,109 @@
                                     headers: usedRange.values[0]
                                 };
                                 allSheetsData.push(sheetData);
+                                debugLog(`  Loaded sheet "${sheet.name}" with ${usedRange.values.length} rows`);
                             }
                         }
                         
                         // Check if both sheets have SSN fields
-                        hasSSNInBothSheets = allSheetsData.length >= 2 && 
-                            allSheetsData.every(sheetData => {
-                                const { ssnFields } = detectFields(sheetData.headers);
-                                return ssnFields.length > 0;
-                            });
+                        let sheet1HasSSN = false;
+                        let sheet2HasSSN = false;
                         
+                        if (allSheetsData.length >= 2) {
+                            const sheet1Fields = detectFields(allSheetsData[0].headers);
+                            const sheet2Fields = detectFields(allSheetsData[1].headers);
+                            
+                            sheet1HasSSN = sheet1Fields.ssnFields.length > 0;
+                            sheet2HasSSN = sheet2Fields.ssnFields.length > 0;
+                            
+                            debugLog(`  Sheet 1 "${allSheetsData[0].name}" SSN fields: ${sheet1Fields.ssnFields.length}`);
+                            debugLog(`  Sheet 2 "${allSheetsData[1].name}" SSN fields: ${sheet2Fields.ssnFields.length}`);
+                        }
+                        
+                        hasSSNInBothSheets = sheet1HasSSN && sheet2HasSSN;
                         debugLog(`SSN fields in both sheets: ${hasSSNInBothSheets}`);
+                        
+                        if (hasSSNInBothSheets) {
+                            createTwoSheetSSNSelections();
+                        }
+                    } else {
+                        hasSSNInBothSheets = false;
+                        debugLog('Not enough sheets for Open Enrollment mode');
                     }
                 });
             } catch (error) {
                 debugLog('Error checking worksheet count: ' + error.message);
                 hasSSNInBothSheets = false;
+                allSheetsData = [];
+            }
+        }
+
+        function createTwoSheetSSNSelections() {
+            if (allSheetsData.length < 2) return;
+            
+            const sheet1Data = allSheetsData[0];
+            const sheet2Data = allSheetsData[1];
+            
+            // Update sheet names in the UI
+            document.getElementById('sheet1Name').textContent = `${sheet1Data.name} SSN Field:`;
+            document.getElementById('sheet2Name').textContent = `${sheet2Data.name} SSN Field:`;
+            
+            // Create SSN field selections for both sheets
+            createSheetSSNCheckboxes('sheet1SSNFields', detectFields(sheet1Data.headers).ssnFields, 'sheet1');
+            createSheetSSNCheckboxes('sheet2SSNFields', detectFields(sheet2Data.headers).ssnFields, 'sheet2');
+            
+            debugLog('Created SSN field selections for both sheets');
+        }
+
+        function createSheetSSNCheckboxes(containerId, ssnFields, sheetPrefix) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            if (ssnFields.length === 0) {
+                container.innerHTML = '<div style="color: #6c757d; font-style: italic;">No SSN fields detected</div>';
+                return;
+            }
+            
+            ssnFields.forEach((field, index) => {
+                const checkboxDiv = document.createElement('div');
+                checkboxDiv.className = 'field-checkbox highlighted';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'radio'; // Use radio buttons to ensure only one selection per sheet
+                checkbox.name = `${sheetPrefix}_ssn`;
+                checkbox.id = `${sheetPrefix}_ssn_${index}`;
+                checkbox.value = field.name;
+                checkbox.checked = index === 0; // Select first one by default
+                checkbox.addEventListener('change', updateTwoSheetSelections);
+                
+                const label = document.createElement('label');
+                label.htmlFor = `${sheetPrefix}_ssn_${index}`;
+                label.textContent = field.name;
+                
+                checkboxDiv.appendChild(checkbox);
+                checkboxDiv.appendChild(label);
+                container.appendChild(checkboxDiv);
+            });
+        }
+
+        function updateTwoSheetSelections() {
+            // Get selected SSN fields from both sheets
+            const sheet1Radio = document.querySelector('input[name="sheet1_ssn"]:checked');
+            const sheet2Radio = document.querySelector('input[name="sheet2_ssn"]:checked');
+            
+            selectedSheet1SSN = sheet1Radio ? sheet1Radio.value : '';
+            selectedSheet2SSN = sheet2Radio ? sheet2Radio.value : '';
+            
+            debugLog(`Selected SSN fields: Sheet1="${selectedSheet1SSN}", Sheet2="${selectedSheet2SSN}"`);
+            
+            const openEnrollmentBtn = document.getElementById('openEnrollmentBtn');
+            
+            if (selectedSheet1SSN && selectedSheet2SSN) {
+                openEnrollmentBtn.disabled = false;
+                showStatus(`Ready for Open Enrollment: ${allSheetsData[0].name}="${selectedSheet1SSN}", ${allSheetsData[1].name}="${selectedSheet2SSN}"`, 'success');
+            } else {
+                openEnrollmentBtn.disabled = true;
+                showStatus('Please select SSN fields from both sheets to continue', 'error');
             }
         }
 
@@ -653,35 +743,47 @@
             
             const processBtn = document.getElementById('processBtn');
             const openEnrollmentBtn = document.getElementById('openEnrollmentBtn');
+            const auditSection = document.getElementById('auditSection');
             
             if (selectedSSNFields.length === 1) {
                 if (hasSSNInBothSheets) {
-                    // Show Open Enrollment button instead of Process button
+                    // Show Open Enrollment button and configuration section
                     processBtn.style.display = 'none';
                     openEnrollmentBtn.style.display = 'block';
-                    openEnrollmentBtn.disabled = false;
-                    showStatus(`Ready for Open Enrollment processing with SSN field: ${selectedSSNFields[0]}`, 'success');
+                    auditSection.style.display = 'block';
+                    
+                    // Check if both sheet SSN fields are selected
+                    if (selectedSheet1SSN && selectedSheet2SSN) {
+                        openEnrollmentBtn.disabled = false;
+                        showStatus(`Ready for Open Enrollment processing`, 'success');
+                    } else {
+                        openEnrollmentBtn.disabled = true;
+                        showStatus('Please select SSN fields from both sheets below', 'info');
+                    }
                 } else {
                     // Show Process button for single sheet processing
                     processBtn.style.display = 'block';
                     processBtn.disabled = false;
                     openEnrollmentBtn.style.display = 'none';
+                    auditSection.style.display = 'none';
                     showStatus(`Ready to process with SSN field: ${selectedSSNFields[0]}`, 'success');
                 }
             } else if (selectedSSNFields.length === 0) {
                 processBtn.disabled = true;
                 openEnrollmentBtn.disabled = true;
+                auditSection.style.display = 'none';
                 showStatus('Please select exactly one SSN field to continue', 'error');
             } else {
                 processBtn.disabled = true;
                 openEnrollmentBtn.disabled = true;
+                auditSection.style.display = 'none';
                 showStatus('Please select only one SSN field. Multiple SSN fields are not supported.', 'error');
             }
         }
 
         async function analyzeCurrentSheet() {
             try {
-                debugLog('Starting analyzeCurrentSheet function...');
+                debugLog('=== STARTING ANALYSIS v3.2 ===');
                 
                 const dateInput = document.getElementById('policyDate');
                 if (!dateInput.value) {
@@ -693,11 +795,13 @@
                 debugLog(`Policy change date set to: ${policyChangeDate.toLocaleDateString()}`);
                 
                 updateStepIndicators('analyze');
-                showStatus('Analyzing current sheet...', 'info');
-                updateProgress(25);
+                showStatus('Analyzing current sheet and checking for multiple sheets...', 'info');
+                updateProgress(10);
                 
-                // Check worksheet count and SSN fields during analysis
+                // CRITICAL: Check worksheet count and SSN fields FIRST
                 await checkWorksheetCount();
+                
+                updateProgress(25);
                 
                 await Excel.run(async (context) => {
                     const worksheet = context.workbook.worksheets.getActiveWorksheet();
@@ -722,7 +826,7 @@
                     
                     currentSheetData = data;
                     detectedHeaders = data[0];
-                    debugLog(`Loaded ${data.length} rows with ${detectedHeaders.length} columns`);
+                    debugLog(`Loaded ${data.length} rows with ${detectedHeaders.length} columns from active sheet`);
                     
                     const { ssnFields, dateFields, costFields } = detectFields(detectedHeaders);
                     detectedDateFields = dateFields;
@@ -735,10 +839,16 @@
                     displayCostFields(costFields);
                     
                     document.getElementById('fieldSelection').style.display = 'block';
+                    
+                    // Update the button display based on multi-sheet detection
                     updateSelectedFields();
                     
                     updateProgress(100);
                     setTimeout(() => updateProgress(0), 1000);
+                    
+                    debugLog(`=== ANALYSIS COMPLETE v3.2 ===`);
+                    debugLog(`Multi-sheet mode: ${hasSSNInBothSheets}`);
+                    debugLog(`Sheets available: ${allSheetsData.length}`);
                 });
                 
             } catch (error) {
@@ -809,7 +919,7 @@
                 throw new Error(`SSN field "${ssnField}" not found in headers`);
             }
             
-            debugLog(`=== PROCESSING VERSION 3.1 - SIMPLIFIED LOGIC ===`);
+            debugLog(`=== PROCESSING VERSION 3.2 - SIMPLIFIED LOGIC ===`);
             debugLog(`Processing ${data.length - 1} data rows`);
             debugLog(`Target date: ${targetDate.toLocaleDateString()}`);
             
@@ -960,7 +1070,7 @@
 
         async function runOpenEnrollmentProcess() {
             try {
-                debugLog('Starting Open Enrollment process...');
+                debugLog('=== STARTING OPEN ENROLLMENT PROCESS v3.2 ===');
                 showStatus('Running Open Enrollment processing...', 'info');
                 updateProgress(10);
                 
@@ -969,36 +1079,27 @@
                     return;
                 }
                 
+                if (!selectedSheet1SSN || !selectedSheet2SSN) {
+                    showStatus('Please select SSN fields from both sheets', 'error');
+                    return;
+                }
+                
+                debugLog(`Using selected SSN fields: "${selectedSheet1SSN}" and "${selectedSheet2SSN}"`);
+                
                 await Excel.run(async (context) => {
                     updateProgress(25);
                     
                     const sheet1Data = allSheetsData[0];
                     const sheet2Data = allSheetsData[1];
                     
-                    debugLog(`Sheet 1: ${sheet1Data.data.length} rows, ${sheet1Data.headers.length} columns`);
-                    debugLog(`Sheet 2: ${sheet2Data.data.length} rows, ${sheet2Data.headers.length} columns`);
-                    
-                    // Detect SSN fields in both sheets
-                    const sheet1Fields = detectFields(sheet1Data.headers);
-                    const sheet2Fields = detectFields(sheet2Data.headers);
-                    
-                    if (sheet1Fields.ssnFields.length === 0 || sheet2Fields.ssnFields.length === 0) {
-                        showStatus('Could not find SSN fields in both sheets', 'error');
-                        return;
-                    }
-                    
-                    // Use first SSN field from each sheet
-                    const sheet1SSNField = sheet1Fields.ssnFields[0].name;
-                    const sheet2SSNField = sheet2Fields.ssnFields[0].name;
-                    
-                    debugLog(`Using SSN fields: Sheet1="${sheet1SSNField}", Sheet2="${sheet2SSNField}"`);
+                    debugLog(`Processing: ${sheet1Data.name} (${sheet1Data.data.length} rows) and ${sheet2Data.name} (${sheet2Data.data.length} rows)`);
                     
                     updateProgress(50);
                     
-                    // Process audit data using existing function
+                    // Process audit data using the user-selected SSN fields
                     const auditResults = processAuditData(
-                        sheet1Data.data, sheet1Data.headers, sheet1SSNField,
-                        sheet2Data.data, sheet2Data.headers, sheet2SSNField
+                        sheet1Data.data, sheet1Data.headers, selectedSheet1SSN,
+                        sheet2Data.data, sheet2Data.headers, selectedSheet2SSN
                     );
                     
                     updateProgress(75);
@@ -1668,11 +1769,11 @@
                 // Add summary
                 const summaryStartRow = currentRow + 2;
                 const summaryData = [
-                    ['PROCESSING SUMMARY v3.1', ''],
+                    ['PROCESSING SUMMARY v3.2', ''],
                     ['Total Unique SSNs:', Object.keys(ssnGroups).length],
                     ['Total Original Rows:', Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)],
                     ['Total Consolidated Rows:', Object.keys(ssnGroups).length],
-                    ['Logic Version:', 'Simplified v3.1 - Exclude only if ALL costs > $0 AND NO dates in range'],
+                    ['Logic Version:', 'Simplified v3.2 - SSN field selection + multi-sheet processing'],
                     ['Processing Date:', new Date().toLocaleDateString()],
                     ['Processing Time:', new Date().toLocaleTimeString()]
                 ];
@@ -1730,7 +1831,7 @@
                 });
                 
                 const summaryData = [
-                    ["Enrollment Data Processing Summary v3.1", ""],
+                    ["Enrollment Data Processing Summary v3.2", ""],
                     ["", ""],
                     ["BASIC INFORMATION", ""],
                     ["Policy Change Date", policyChangeDate.toLocaleDateString()],
@@ -1751,7 +1852,7 @@
                     ["Total Dollar Amount", totalDollarAmount],
                     ["Average per SSN", totalSSNs > 0 ? (totalDollarAmount / totalSSNs) : 0],
                     ["", ""],
-                    ["SIMPLIFIED LOGIC v3.1", ""],
+                    ["SIMPLIFIED LOGIC v3.2", ""],
                     ["Rule 1", "EXCLUDE: SSNs where ALL rows have cost > $0 AND ALL date fields NOT in target range"],
                     ["Rule 2", "INCLUDE: All other SSN combinations (ANY date match OR ANY zero/null values)"],
                     ["Rule 3", "All rows for included SSNs are consolidated into single row"],
@@ -1763,7 +1864,7 @@
                     ["Processing Date", new Date().toLocaleDateString()],
                     ["Processing Time", new Date().toLocaleTimeString()],
                     ["Debug Mode", debugMode ? "Enabled" : "Disabled"],
-                    ["Version", "3.1 COMPLETE - Simplified Logic + Open Enrollment"]
+                    ["Version", "3.2 COMPLETE - SSN Field Selection for Multi-Sheet Processing"]
                 ];
                 
                 for (let i = 0; i < summaryData.length; i++) {
@@ -1835,15 +1936,16 @@
             }
         });
 
-        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.1 COMPLETE ===');
-        console.log('New Features in v3.1:');
-        console.log('- Open Enrollment button replaces Process button when 2+ sheets with SSN fields detected');
-        console.log('- Step 1: Analyze now checks for SSN fields in multiple sheets');
-        console.log('- Step 2: Process for single sheet, Step 2: Open Enrollment for multi-sheet processing');
+        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.2 COMPLETE ===');
+        console.log('New Features in v3.2:');
+        console.log('- Fixed multi-sheet detection during Step 1: Analyze');
+        console.log('- User can select specific SSN fields from each sheet (radio buttons)');
+        console.log('- Shows sheet names and field names clearly in UI');
+        console.log('- Open Enrollment button only appears when both sheets have SSN fields');
+        console.log('- Enhanced debugging and status messages');
         console.log('- Healthcare abbreviation expansion (EE, ES, PPO, HMO, etc.)');
         console.log('- Fuzzy matching for coverage names between sheets');
         console.log('- Simplified inclusion logic: Exclude only if ALL costs > $0 AND ALL dates NOT in range');
-        console.log('- Enhanced error handling and debugging');
         console.log('- Keyboard shortcuts: Ctrl+Alt+1 (analyze), Ctrl+Alt+2 (process), Ctrl+Alt+3 (open enrollment)');
         console.log('=== READY FOR USE ===');
     </script>
