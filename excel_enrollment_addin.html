@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enrollment Data Processor v3.3 COMPLETE</title>
+    <title>Enrollment Data Processor v3.4 COMPLETE</title>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
     <style>
         body {
@@ -288,7 +288,7 @@
             <span class="logo-united">UNITED</span>
             <span class="logo-enroll">ENROLL</span>
         </div>
-        <h1>Enrollment Data Processor v3.3</h1>
+        <h1>Enrollment Data Processor v3.4</h1>
         
         <div class="date-input-section">
             <label for="policyDate">Policy Change Date:</label>
@@ -325,7 +325,7 @@
             </div>
             
             <div class="zero-null-info">
-                <strong>Enhanced Logic v3.3:</strong> 
+                <strong>Enhanced Logic v3.4:</strong> 
                 <ul style="margin: 5px 0; padding-left: 20px;">
                     <li><strong>EXCLUDE:</strong> SSNs where ALL rows have cost > $0 AND ALL date fields are NOT in the target date range</li>
                     <li><strong>INCLUDE:</strong> All other SSN combinations (ANY date match OR ANY zero/null cost OR ANY zero/null date)</li>
@@ -370,7 +370,7 @@
     </div>
 
     <script>
-        console.log('=== SCRIPT LOADING - VERSION 3.3 ENHANCED SSN DETECTION ===');
+        console.log('=== SCRIPT LOADING - VERSION 3.4 COMPLETE ===');
         
         let detectedHeaders = [];
         let currentSheetData = [];
@@ -423,7 +423,7 @@
         };
 
         Office.onReady((info) => {
-            console.log('=== OFFICE.JS READY - VERSION 3.3 ENHANCED ===');
+            console.log('=== OFFICE.JS READY - VERSION 3.4 COMPLETE ===');
             console.log('Host:', info.host);
             console.log('Platform:', info.platform);
             
@@ -438,7 +438,7 @@
             
             if (debugMode) {
                 document.getElementById('debugInfo').style.display = 'block';
-                debugLog('Debug mode enabled - Version 3.3 ENHANCED SSN DETECTION');
+                debugLog('Debug mode enabled - Version 3.4 COMPLETE ALL-SHEET SCANNING');
             }
             
             setTimeout(setupEventListeners, 100);
@@ -608,101 +608,158 @@
             return { ssnFields, dateFields, costFields };
         }
 
+        // Consolidated sheet data loading function
+        async function loadSheetData(sheet, context) {
+            try {
+                const usedRange = sheet.getUsedRange();
+                usedRange.load("values");
+                await context.sync();
+                
+                if (!usedRange.isNullObject && usedRange.values && usedRange.values.length > 0) {
+                    return {
+                        name: sheet.name,
+                        data: usedRange.values,
+                        headers: usedRange.values[0],
+                        index: sheet.position,
+                        hasData: true
+                    };
+                } else {
+                    debugLog(`  Sheet "${sheet.name}" has no data or is empty`);
+                    return {
+                        name: sheet.name,
+                        data: null,
+                        headers: null,
+                        index: sheet.position,
+                        hasData: false
+                    };
+                }
+            } catch (error) {
+                debugLog(`  Error loading sheet "${sheet.name}": ${error.message}`);
+                return {
+                    name: sheet.name,
+                    data: null,
+                    headers: null,
+                    index: sheet.position,
+                    hasData: false,
+                    error: error.message
+                };
+            }
+        }
+
+        // Consolidated SSN field analysis
+        function analyzeSheetForSSNFields(sheetData) {
+            if (!sheetData.hasData || !sheetData.headers) {
+                return {
+                    sheetData: sheetData,
+                    ssnFields: [],
+                    hasSSN: false,
+                    dateFields: [],
+                    costFields: []
+                };
+            }
+            
+            const fieldAnalysis = detectFields(sheetData.headers, sheetData.data);
+            const hasSSN = fieldAnalysis.ssnFields.length > 0;
+            
+            debugLog(`  Sheet "${sheetData.name}" analysis: ${fieldAnalysis.ssnFields.length} SSN fields, ${fieldAnalysis.dateFields.length} date fields, ${fieldAnalysis.costFields.length} cost fields`);
+            fieldAnalysis.ssnFields.forEach(field => {
+                debugLog(`    SSN Field: "${field.name}" (${field.detectionMethod})`);
+            });
+            
+            return {
+                sheetData: sheetData,
+                ssnFields: fieldAnalysis.ssnFields,
+                hasSSN: hasSSN,
+                dateFields: fieldAnalysis.dateFields,
+                costFields: fieldAnalysis.costFields
+            };
+        }
+
         async function checkWorksheetCount() {
             try {
-                debugLog('=== CHECKING WORKSHEET COUNT v3.3 ===');
+                debugLog('=== CHECKING ALL WORKSHEETS v3.4 ===');
                 await Excel.run(async (context) => {
                     const worksheets = context.workbook.worksheets;
-                    worksheets.load("count, items/name");
+                    worksheets.load("count, items/name, items/position");
                     await context.sync();
                     
                     worksheetCount = worksheets.count;
-                    debugLog(`Detected ${worksheetCount} worksheets`);
+                    debugLog(`Detected ${worksheetCount} total worksheets`);
                     
-                    if (worksheetCount >= 2) {
-                        allSheetsData = [];
+                    if (worksheetCount < 2) {
+                        hasSSNInBothSheets = false;
+                        debugLog('Insufficient worksheets for Open Enrollment mode');
+                        return;
+                    }
+                    
+                    // Load data from ALL sheets
+                    const allSheetAnalysis = [];
+                    debugLog('=== LOADING ALL SHEET DATA ===');
+                    
+                    for (let i = 0; i < worksheets.items.length; i++) {
+                        const sheet = worksheets.items[i];
+                        debugLog(`Loading sheet ${i}: "${sheet.name}" (position: ${sheet.position})`);
                         
-                        for (let i = 0; i < Math.min(2, worksheets.items.length); i++) {
-                            const sheet = worksheets.items[i];
-                            debugLog(`Loading sheet ${i}: "${sheet.name}"`);
-                            
-                            const usedRange = sheet.getUsedRange();
-                            usedRange.load("values");
-                            await context.sync();
-                            
-                            if (!usedRange.isNullObject && usedRange.values && usedRange.values.length > 0) {
-                                const sheetData = {
-                                    name: sheet.name,
-                                    data: usedRange.values,
-                                    headers: usedRange.values[0]
-                                };
-                                allSheetsData.push(sheetData);
-                                debugLog(`  Successfully loaded sheet "${sheet.name}" with ${usedRange.values.length} rows`);
-                            } else {
-                                debugLog(`  Sheet "${sheet.name}" has no data or is empty`);
-                            }
-                        }
+                        const sheetData = await loadSheetData(sheet, context);
+                        const analysis = analyzeSheetForSSNFields(sheetData);
+                        allSheetAnalysis.push(analysis);
+                    }
+                    
+                    // Filter sheets with SSN fields and sort by position to maintain order
+                    const sheetsWithSSN = allSheetAnalysis
+                        .filter(analysis => analysis.hasSSN)
+                        .sort((a, b) => a.sheetData.index - b.sheetData.index);
+                    
+                    debugLog(`=== SSN ANALYSIS RESULTS ===`);
+                    debugLog(`Total sheets analyzed: ${allSheetAnalysis.length}`);
+                    debugLog(`Sheets with SSN fields: ${sheetsWithSSN.length}`);
+                    
+                    if (sheetsWithSSN.length >= 2) {
+                        // Take the first two sheets with SSN fields (by position order)
+                        const firstTwoSSNSheets = sheetsWithSSN.slice(0, 2);
+                        allSheetsData = firstTwoSSNSheets.map(analysis => analysis.sheetData);
                         
-                        // Check if both sheets have SSN fields with enhanced detection
-                        let sheet1HasSSN = false;
-                        let sheet2HasSSN = false;
-                        let sheet1SSNFields = [];
-                        let sheet2SSNFields = [];
+                        debugLog(`Selected first two SSN-enabled sheets:`);
+                        debugLog(`  Sheet 1: "${allSheetsData[0].name}" (position ${allSheetsData[0].index})`);
+                        debugLog(`  Sheet 2: "${allSheetsData[1].name}" (position ${allSheetsData[1].index})`);
                         
-                        if (allSheetsData.length >= 2) {
-                            const sheet1Fields = detectFields(allSheetsData[0].headers, allSheetsData[0].data);
-                            const sheet2Fields = detectFields(allSheetsData[1].headers, allSheetsData[1].data);
-                            
-                            sheet1SSNFields = sheet1Fields.ssnFields;
-                            sheet2SSNFields = sheet2Fields.ssnFields;
-                            
-                            sheet1HasSSN = sheet1SSNFields.length > 0;
-                            sheet2HasSSN = sheet2SSNFields.length > 0;
-                            
-                            debugLog(`  Sheet 1 "${allSheetsData[0].name}" SSN fields found: ${sheet1SSNFields.length}`);
-                            sheet1SSNFields.forEach(field => debugLog(`    - ${field.name} (${field.detectionMethod})`));
-                            
-                            debugLog(`  Sheet 2 "${allSheetsData[1].name}" SSN fields found: ${sheet2SSNFields.length}`);
-                            sheet2SSNFields.forEach(field => debugLog(`    - ${field.name} (${field.detectionMethod})`));
-                        }
+                        hasSSNInBothSheets = true;
+                        createTwoSheetSSNSelections(firstTwoSSNSheets);
                         
-                        hasSSNInBothSheets = sheet1HasSSN && sheet2HasSSN;
-                        debugLog(`=== FINAL RESULT: SSN fields in both sheets: ${hasSSNInBothSheets} ===`);
-                        
-                        if (hasSSNInBothSheets) {
-                            debugLog('Creating two-sheet SSN selections...');
-                            createTwoSheetSSNSelections();
-                        } else {
-                            debugLog('Not creating two-sheet selections - insufficient SSN fields');
-                            if (!sheet1HasSSN) debugLog(`  Sheet 1 missing SSN fields`);
-                            if (!sheet2HasSSN) debugLog(`  Sheet 2 missing SSN fields`);
-                        }
                     } else {
                         hasSSNInBothSheets = false;
-                        debugLog('Not enough sheets for Open Enrollment mode');
+                        allSheetsData = [];
+                        debugLog(`Insufficient SSN-enabled sheets for Open Enrollment (found ${sheetsWithSSN.length}, need 2)`);
+                        
+                        // Log which sheets have SSN and which don't for debugging
+                        allSheetAnalysis.forEach((analysis, index) => {
+                            debugLog(`  Sheet ${index}: "${analysis.sheetData.name}" - SSN fields: ${analysis.ssnFields.length} - Has data: ${analysis.sheetData.hasData}`);
+                        });
                     }
+                    
+                    debugLog(`=== FINAL MULTI-SHEET RESULT: ${hasSSNInBothSheets} ===`);
                 });
             } catch (error) {
-                debugLog('Error checking worksheet count: ' + error.message);
-                console.error('Worksheet count error:', error);
+                debugLog('Error checking worksheets: ' + error.message);
+                console.error('Worksheet analysis error:', error);
                 hasSSNInBothSheets = false;
                 allSheetsData = [];
             }
         }
 
-        function createTwoSheetSSNSelections() {
-            if (allSheetsData.length < 2) return;
+        function createTwoSheetSSNSelections(sheetAnalyses) {
+            if (sheetAnalyses.length < 2) return;
             
-            const sheet1Data = allSheetsData[0];
-            const sheet2Data = allSheetsData[1];
+            const sheet1Analysis = sheetAnalyses[0];
+            const sheet2Analysis = sheetAnalyses[1];
             
-            document.getElementById('sheet1Name').textContent = `${sheet1Data.name} SSN Field:`;
-            document.getElementById('sheet2Name').textContent = `${sheet2Data.name} SSN Field:`;
+            document.getElementById('sheet1Name').textContent = `${sheet1Analysis.sheetData.name} SSN Field:`;
+            document.getElementById('sheet2Name').textContent = `${sheet2Analysis.sheetData.name} SSN Field:`;
             
-            createSheetSSNCheckboxes('sheet1SSNFields', detectFields(sheet1Data.headers, sheet1Data.data).ssnFields, 'sheet1');
-            createSheetSSNCheckboxes('sheet2SSNFields', detectFields(sheet2Data.headers, sheet2Data.data).ssnFields, 'sheet2');
+            createSheetSSNCheckboxes('sheet1SSNFields', sheet1Analysis.ssnFields, 'sheet1');
+            createSheetSSNCheckboxes('sheet2SSNFields', sheet2Analysis.ssnFields, 'sheet2');
             
-            debugLog('Created SSN field selections for both sheets');
+            debugLog('Created SSN field selections for first two SSN-enabled sheets');
         }
 
         function createSheetSSNCheckboxes(containerId, ssnFields, sheetPrefix) {
@@ -922,7 +979,7 @@
 
         async function analyzeCurrentSheet() {
             try {
-                debugLog('=== STARTING ANALYSIS v3.3 ENHANCED ===');
+                debugLog('=== STARTING ANALYSIS v3.4 ALL-SHEET SCANNING ===');
                 
                 const dateInput = document.getElementById('policyDate');
                 if (!dateInput.value) {
@@ -934,7 +991,7 @@
                 debugLog(`Policy change date set to: ${policyChangeDate.toLocaleDateString()}`);
                 
                 updateStepIndicators('analyze');
-                showStatus('Analyzing current sheet with enhanced SSN detection...', 'info');
+                showStatus('Analyzing all sheets with enhanced SSN detection...', 'info');
                 updateProgress(10);
                 
                 await checkWorksheetCount();
@@ -989,7 +1046,7 @@
                     updateProgress(100);
                     setTimeout(() => updateProgress(0), 1000);
                     
-                    debugLog(`=== ANALYSIS COMPLETE v3.3 ENHANCED ===`);
+                    debugLog(`=== ANALYSIS COMPLETE v3.4 ALL-SHEET SCANNING ===`);
                     debugLog(`Multi-sheet mode: ${hasSSNInBothSheets}`);
                     debugLog(`Enhanced SSN detection complete`);
                 });
@@ -1063,7 +1120,7 @@
                 throw new Error(`SSN field "${ssnField}" not found in headers`);
             }
             
-            debugLog(`=== PROCESSING VERSION 3.3 - ENHANCED SSN DETECTION ===`);
+            debugLog(`=== PROCESSING VERSION 3.4 - ALL-SHEET SSN DETECTION ===`);
             debugLog(`Processing ${data.length - 1} data rows`);
             debugLog(`Target date: ${targetDate.toLocaleDateString()}`);
             
@@ -1214,7 +1271,7 @@
 
         async function runOpenEnrollmentProcess() {
             try {
-                debugLog('=== STARTING OPEN ENROLLMENT PROCESS v3.3 ===');
+                debugLog('=== STARTING OPEN ENROLLMENT PROCESS v3.4 ===');
                 showStatus('Running Open Enrollment processing...', 'info');
                 updateProgress(10);
                 
@@ -1866,7 +1923,7 @@
                     
                     let notes = '';
                     if (consolidatedRow._originalRowCount > 1) {
-                        notes = `Consolidated ${consolidatedRow._originalRowCount} rows using enhanced v3.3 logic with data-based SSN detection. `;
+                        notes = `Consolidated ${consolidatedRow._originalRowCount} rows using enhanced v3.4 logic with all-sheet SSN detection. `;
                         notes += 'Plan/coverage fields show individual plan costs as "Plan Name ($Cost)".';
                     } else {
                         notes = 'Single row - no consolidation needed';
@@ -1914,12 +1971,13 @@
                 // Add summary
                 const summaryStartRow = currentRow + 2;
                 const summaryData = [
-                    ['PROCESSING SUMMARY v3.3 ENHANCED', ''],
+                    ['PROCESSING SUMMARY v3.4 ALL-SHEET SCANNING', ''],
                     ['Total Unique SSNs:', Object.keys(ssnGroups).length],
                     ['Total Original Rows:', Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)],
                     ['Total Consolidated Rows:', Object.keys(ssnGroups).length],
-                    ['Logic Version:', 'Enhanced v3.3 - Data-based SSN pattern detection'],
-                    ['SSN Detection:', 'Header analysis + data pattern scanning (XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX)'],
+                    ['Logic Version:', 'Enhanced v3.4 - All-sheet scanning with intelligent SSN detection'],
+                    ['SSN Detection:', 'Header analysis + data pattern scanning across ALL worksheets'],
+                    ['Sheet Selection:', 'Automatically selects first two sheets with SSN data by position order'],
                     ['Processing Date:', new Date().toLocaleDateString()],
                     ['Processing Time:', new Date().toLocaleTimeString()]
                 ];
@@ -1977,7 +2035,7 @@
                 });
                 
                 const summaryData = [
-                    ["Enrollment Data Processing Summary v3.3 ENHANCED", ""],
+                    ["Enrollment Data Processing Summary v3.4 ALL-SHEET SCANNING", ""],
                     ["", ""],
                     ["BASIC INFORMATION", ""],
                     ["Policy Change Date", policyChangeDate.toLocaleDateString()],
@@ -1998,13 +2056,15 @@
                     ["Total Dollar Amount", totalDollarAmount],
                     ["Average per SSN", totalSSNs > 0 ? (totalDollarAmount / totalSSNs) : 0],
                     ["", ""],
-                    ["ENHANCED SSN DETECTION v3.3", ""],
-                    ["Detection Method", "Header analysis + data pattern scanning"],
+                    ["ALL-SHEET SSN DETECTION v3.4", ""],
+                    ["Detection Method", "Header analysis + data pattern scanning across ALL worksheets"],
                     ["Supported Patterns", "XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX, XXX XXXXXX"],
                     ["Scan Depth", "First 10 rows of data per column"],
                     ["Threshold", "70% of non-empty values must match SSN patterns"],
+                    ["Sheet Selection", "Automatically selects first two sheets with SSN data by position order"],
+                    ["Multi-Sheet Logic", "Scans all worksheets, not just first two by index"],
                     ["", ""],
-                    ["SIMPLIFIED LOGIC v3.3", ""],
+                    ["SIMPLIFIED LOGIC v3.4", ""],
                     ["Rule 1", "EXCLUDE: SSNs where ALL rows have cost > $0 AND ALL date fields NOT in target range"],
                     ["Rule 2", "INCLUDE: All other SSN combinations (ANY date match OR ANY zero/null values)"],
                     ["Rule 3", "All rows for included SSNs are consolidated into single row"],
@@ -2016,7 +2076,7 @@
                     ["Processing Date", new Date().toLocaleDateString()],
                     ["Processing Time", new Date().toLocaleTimeString()],
                     ["Debug Mode", debugMode ? "Enabled" : "Disabled"],
-                    ["Version", "3.3 ENHANCED - Data-based SSN Pattern Detection"]
+                    ["Version", "3.4 COMPLETE - All-Sheet Scanning with Intelligent SSN Detection"]
                 ];
                 
                 for (let i = 0; i < summaryData.length; i++) {
@@ -2088,14 +2148,18 @@
             }
         });
 
-        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.3 ENHANCED SSN DETECTION ===');
-        console.log('Enhanced Features in v3.3:');
+        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.4 ALL-SHEET SCANNING ===');
+        console.log('Enhanced Features in v3.4:');
+        console.log('- ALL-SHEET SCANNING: Analyzes every worksheet in the workbook');
+        console.log('- INTELLIGENT SHEET SELECTION: Automatically selects first two sheets with SSN data by position order');
+        console.log('- CONSOLIDATED LOADING: DRY principles applied to sheet loading and analysis');
+        console.log('- POSITION-BASED ORDERING: Maintains visual tab order when selecting sheets');
+        console.log('- COMPREHENSIVE LOGGING: Enhanced debugging for multi-sheet analysis');
         console.log('- DATA-BASED SSN DETECTION: Scans actual column data for SSN patterns');
         console.log('- Supported SSN Patterns: XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX, XXX XXXXXX');
         console.log('- Smart Detection: Scans first 10 rows, requires 70% pattern match');
         console.log('- Visual Indicators: Green highlighting for data-detected fields');
         console.log('- Detection Method Display: Shows "(header)", "(data)", or "(header+data)"');
-        console.log('- Enhanced Multi-sheet Support: Uses data scanning for both sheets');
         console.log('- Maintains all existing functionality: Open Enrollment, abbreviation expansion, fuzzy matching');
         console.log('- Simplified inclusion logic: Exclude only if ALL costs > $0 AND ALL dates NOT in range');
         console.log('- Keyboard shortcuts: Ctrl+Alt+1 (analyze), Ctrl+Alt+2 (process), Ctrl+Alt+3 (open enrollment)');
