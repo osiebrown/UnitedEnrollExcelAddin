@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enrollment Data Processor v3.4 COMPLETE</title>
+    <title>Enrollment Data Processor v3.5 COMPLETE</title>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
     <style>
         body {
@@ -288,7 +288,7 @@
             <span class="logo-united">UNITED</span>
             <span class="logo-enroll">ENROLL</span>
         </div>
-        <h1>Enrollment Data Processor v3.4</h1>
+        <h1>Enrollment Data Processor v3.5</h1>
         
         <div class="date-input-section">
             <label for="policyDate">Policy Change Date:</label>
@@ -325,7 +325,7 @@
             </div>
             
             <div class="zero-null-info">
-                <strong>Enhanced Logic v3.4:</strong> 
+                <strong>Enhanced Logic v3.5:</strong> 
                 <ul style="margin: 5px 0; padding-left: 20px;">
                     <li><strong>EXCLUDE:</strong> SSNs where ALL rows have cost > $0 AND ALL date fields are NOT in the target date range</li>
                     <li><strong>INCLUDE:</strong> All other SSN combinations (ANY date match OR ANY zero/null cost OR ANY zero/null date)</li>
@@ -370,7 +370,7 @@
     </div>
 
     <script>
-        console.log('=== SCRIPT LOADING - VERSION 3.4 COMPLETE ===');
+        console.log('=== SCRIPT LOADING - VERSION 3.5 COMPLETE ===');
         
         let detectedHeaders = [];
         let currentSheetData = [];
@@ -423,7 +423,7 @@
         };
 
         Office.onReady((info) => {
-            console.log('=== OFFICE.JS READY - VERSION 3.4 COMPLETE ===');
+            console.log('=== OFFICE.JS READY - VERSION 3.5 COMPLETE ===');
             console.log('Host:', info.host);
             console.log('Platform:', info.platform);
             
@@ -438,7 +438,7 @@
             
             if (debugMode) {
                 document.getElementById('debugInfo').style.display = 'block';
-                debugLog('Debug mode enabled - Version 3.4 COMPLETE ALL-SHEET SCANNING');
+                debugLog('Debug mode enabled - Version 3.5 COMPLETE RADIO BUTTON FIX');
             }
             
             setTimeout(setupEventListeners, 100);
@@ -747,6 +747,61 @@
             }
         }
 
+        // Consolidated button state management (DRY principle)
+        function updateButtonStates() {
+            const processBtn = document.getElementById('processBtn');
+            const openEnrollmentBtn = document.getElementById('openEnrollmentBtn');
+            const auditSection = document.getElementById('auditSection');
+            
+            debugLog(`=== UPDATING BUTTON STATES v3.5 ===`);
+            debugLog(`Selected SSN fields: ${selectedSSNFields.length}`);
+            debugLog(`Has SSN in both sheets: ${hasSSNInBothSheets}`);
+            debugLog(`Sheet1 SSN: "${selectedSheet1SSN}"`);
+            debugLog(`Sheet2 SSN: "${selectedSheet2SSN}"`);
+            
+            if (selectedSSNFields.length === 1) {
+                if (hasSSNInBothSheets) {
+                    // Multi-sheet mode - show Open Enrollment
+                    processBtn.style.display = 'none';
+                    openEnrollmentBtn.style.display = 'block';
+                    auditSection.style.display = 'block';
+                    
+                    // Enable only if both sheet SSN fields are selected
+                    if (selectedSheet1SSN && selectedSheet2SSN) {
+                        openEnrollmentBtn.disabled = false;
+                        showStatus(`Ready for Open Enrollment processing with selected SSN fields`, 'success');
+                        debugLog(`✓ Open Enrollment button ENABLED`);
+                    } else {
+                        openEnrollmentBtn.disabled = true;
+                        showStatus('Please select SSN fields from both sheets below', 'info');
+                        debugLog(`✗ Open Enrollment button DISABLED - missing sheet SSN selections`);
+                    }
+                } else {
+                    // Single-sheet mode - show Process
+                    processBtn.style.display = 'block';
+                    processBtn.disabled = false;
+                    openEnrollmentBtn.style.display = 'none';
+                    auditSection.style.display = 'none';
+                    showStatus(`Ready to process with SSN field: ${selectedSSNFields[0]}`, 'success');
+                    debugLog(`✓ Process button ENABLED`);
+                }
+            } else if (selectedSSNFields.length === 0) {
+                // No SSN field selected
+                processBtn.disabled = true;
+                openEnrollmentBtn.disabled = true;
+                auditSection.style.display = 'none';
+                showStatus('Please select exactly one SSN field to continue', 'error');
+                debugLog(`✗ No SSN field selected`);
+            } else {
+                // Multiple SSN fields selected
+                processBtn.disabled = true;
+                openEnrollmentBtn.disabled = true;
+                auditSection.style.display = 'none';
+                showStatus('Please select only one SSN field. Multiple SSN fields are not supported.', 'error');
+                debugLog(`✗ Multiple SSN fields selected`);
+            }
+        }
+
         function createTwoSheetSSNSelections(sheetAnalyses) {
             if (sheetAnalyses.length < 2) return;
             
@@ -759,7 +814,44 @@
             createSheetSSNCheckboxes('sheet1SSNFields', sheet1Analysis.ssnFields, 'sheet1');
             createSheetSSNCheckboxes('sheet2SSNFields', sheet2Analysis.ssnFields, 'sheet2');
             
+            // Initialize selections and trigger validation
+            initializeSheetSSNSelections();
+            
             debugLog('Created SSN field selections for first two SSN-enabled sheets');
+        }
+
+        // Initialize sheet SSN selections and trigger validation (DRY principle)
+        function initializeSheetSSNSelections() {
+            debugLog('=== INITIALIZING SHEET SSN SELECTIONS ===');
+            
+            // Get current selections
+            const sheet1Radio = document.querySelector('input[name="sheet1_ssn"]:checked');
+            const sheet2Radio = document.querySelector('input[name="sheet2_ssn"]:checked');
+            
+            selectedSheet1SSN = sheet1Radio ? sheet1Radio.value : '';
+            selectedSheet2SSN = sheet2Radio ? sheet2Radio.value : '';
+            
+            debugLog(`Initial Sheet1 SSN: "${selectedSheet1SSN}"`);
+            debugLog(`Initial Sheet2 SSN: "${selectedSheet2SSN}"`);
+            
+            // Update button states
+            updateButtonStates();
+        }
+
+        function updateTwoSheetSelections() {
+            debugLog('=== UPDATING TWO SHEET SELECTIONS ===');
+            
+            const sheet1Radio = document.querySelector('input[name="sheet1_ssn"]:checked');
+            const sheet2Radio = document.querySelector('input[name="sheet2_ssn"]:checked');
+            
+            selectedSheet1SSN = sheet1Radio ? sheet1Radio.value : '';
+            selectedSheet2SSN = sheet2Radio ? sheet2Radio.value : '';
+            
+            debugLog(`Updated Sheet1 SSN: "${selectedSheet1SSN}"`);
+            debugLog(`Updated Sheet2 SSN: "${selectedSheet2SSN}"`);
+            
+            // Update button states using consolidated function
+            updateButtonStates();
         }
 
         function createSheetSSNCheckboxes(containerId, ssnFields, sheetPrefix) {
@@ -979,7 +1071,7 @@
 
         async function analyzeCurrentSheet() {
             try {
-                debugLog('=== STARTING ANALYSIS v3.4 ALL-SHEET SCANNING ===');
+                debugLog('=== STARTING ANALYSIS v3.5 RADIO BUTTON FIX ===');
                 
                 const dateInput = document.getElementById('policyDate');
                 if (!dateInput.value) {
@@ -1046,7 +1138,7 @@
                     updateProgress(100);
                     setTimeout(() => updateProgress(0), 1000);
                     
-                    debugLog(`=== ANALYSIS COMPLETE v3.4 ALL-SHEET SCANNING ===`);
+                    debugLog(`=== ANALYSIS COMPLETE v3.5 RADIO BUTTON FIX ===`);
                     debugLog(`Multi-sheet mode: ${hasSSNInBothSheets}`);
                     debugLog(`Enhanced SSN detection complete`);
                 });
@@ -1120,7 +1212,7 @@
                 throw new Error(`SSN field "${ssnField}" not found in headers`);
             }
             
-            debugLog(`=== PROCESSING VERSION 3.4 - ALL-SHEET SSN DETECTION ===`);
+            debugLog(`=== PROCESSING VERSION 3.5 - RADIO BUTTON FIX ===`);
             debugLog(`Processing ${data.length - 1} data rows`);
             debugLog(`Target date: ${targetDate.toLocaleDateString()}`);
             
@@ -1271,7 +1363,7 @@
 
         async function runOpenEnrollmentProcess() {
             try {
-                debugLog('=== STARTING OPEN ENROLLMENT PROCESS v3.4 ===');
+                debugLog('=== STARTING OPEN ENROLLMENT PROCESS v3.5 ===');
                 showStatus('Running Open Enrollment processing...', 'info');
                 updateProgress(10);
                 
@@ -1923,7 +2015,7 @@
                     
                     let notes = '';
                     if (consolidatedRow._originalRowCount > 1) {
-                        notes = `Consolidated ${consolidatedRow._originalRowCount} rows using enhanced v3.4 logic with all-sheet SSN detection. `;
+                        notes = `Consolidated ${consolidatedRow._originalRowCount} rows using enhanced v3.5 logic with radio button fixes. `;
                         notes += 'Plan/coverage fields show individual plan costs as "Plan Name ($Cost)".';
                     } else {
                         notes = 'Single row - no consolidation needed';
@@ -1971,13 +2063,14 @@
                 // Add summary
                 const summaryStartRow = currentRow + 2;
                 const summaryData = [
-                    ['PROCESSING SUMMARY v3.4 ALL-SHEET SCANNING', ''],
+                    ['PROCESSING SUMMARY v3.5 RADIO BUTTON FIX', ''],
                     ['Total Unique SSNs:', Object.keys(ssnGroups).length],
                     ['Total Original Rows:', Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)],
                     ['Total Consolidated Rows:', Object.keys(ssnGroups).length],
-                    ['Logic Version:', 'Enhanced v3.4 - All-sheet scanning with intelligent SSN detection'],
+                    ['Logic Version:', 'Enhanced v3.5 - Fixed radio button validation for multi-sheet processing'],
                     ['SSN Detection:', 'Header analysis + data pattern scanning across ALL worksheets'],
                     ['Sheet Selection:', 'Automatically selects first two sheets with SSN data by position order'],
+                    ['UI Fix:', 'Resolved Open Enrollment button state management'],
                     ['Processing Date:', new Date().toLocaleDateString()],
                     ['Processing Time:', new Date().toLocaleTimeString()]
                 ];
@@ -2035,7 +2128,7 @@
                 });
                 
                 const summaryData = [
-                    ["Enrollment Data Processing Summary v3.4 ALL-SHEET SCANNING", ""],
+                    ["Enrollment Data Processing Summary v3.5 RADIO BUTTON FIX", ""],
                     ["", ""],
                     ["BASIC INFORMATION", ""],
                     ["Policy Change Date", policyChangeDate.toLocaleDateString()],
@@ -2056,15 +2149,16 @@
                     ["Total Dollar Amount", totalDollarAmount],
                     ["Average per SSN", totalSSNs > 0 ? (totalDollarAmount / totalSSNs) : 0],
                     ["", ""],
-                    ["ALL-SHEET SSN DETECTION v3.4", ""],
+                    ["ALL-SHEET SSN DETECTION v3.5", ""],
                     ["Detection Method", "Header analysis + data pattern scanning across ALL worksheets"],
                     ["Supported Patterns", "XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX, XXX XXXXXX"],
                     ["Scan Depth", "First 10 rows of data per column"],
                     ["Threshold", "70% of non-empty values must match SSN patterns"],
                     ["Sheet Selection", "Automatically selects first two sheets with SSN data by position order"],
                     ["Multi-Sheet Logic", "Scans all worksheets, not just first two by index"],
+                    ["UI Fix", "Fixed radio button validation for Open Enrollment mode"],
                     ["", ""],
-                    ["SIMPLIFIED LOGIC v3.4", ""],
+                    ["SIMPLIFIED LOGIC v3.5", ""],
                     ["Rule 1", "EXCLUDE: SSNs where ALL rows have cost > $0 AND ALL date fields NOT in target range"],
                     ["Rule 2", "INCLUDE: All other SSN combinations (ANY date match OR ANY zero/null values)"],
                     ["Rule 3", "All rows for included SSNs are consolidated into single row"],
@@ -2076,7 +2170,7 @@
                     ["Processing Date", new Date().toLocaleDateString()],
                     ["Processing Time", new Date().toLocaleTimeString()],
                     ["Debug Mode", debugMode ? "Enabled" : "Disabled"],
-                    ["Version", "3.4 COMPLETE - All-Sheet Scanning with Intelligent SSN Detection"]
+                    ["Version", "3.5 COMPLETE - Radio Button Validation Fix + All-Sheet Scanning"]
                 ];
                 
                 for (let i = 0; i < summaryData.length; i++) {
@@ -2148,21 +2242,21 @@
             }
         });
 
-        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.4 ALL-SHEET SCANNING ===');
-        console.log('Enhanced Features in v3.4:');
+        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.5 RADIO BUTTON FIX ===');
+        console.log('Critical Fix in v3.5:');
+        console.log('- RADIO BUTTON VALIDATION FIX: Resolved Open Enrollment button state management');
+        console.log('- CONSOLIDATED BUTTON LOGIC: DRY principles applied to button state management');
+        console.log('- ENHANCED EVENT HANDLING: Improved radio button change detection');
+        console.log('- INITIALIZATION FIX: Properly handles default radio button selections');
+        console.log('- COMPREHENSIVE DEBUGGING: Enhanced logging for button state troubleshooting');
+        console.log('Maintained v3.4 Features:');
         console.log('- ALL-SHEET SCANNING: Analyzes every worksheet in the workbook');
-        console.log('- INTELLIGENT SHEET SELECTION: Automatically selects first two sheets with SSN data by position order');
-        console.log('- CONSOLIDATED LOADING: DRY principles applied to sheet loading and analysis');
-        console.log('- POSITION-BASED ORDERING: Maintains visual tab order when selecting sheets');
-        console.log('- COMPREHENSIVE LOGGING: Enhanced debugging for multi-sheet analysis');
+        console.log('- INTELLIGENT SHEET SELECTION: Automatically selects first two sheets with SSN data');
         console.log('- DATA-BASED SSN DETECTION: Scans actual column data for SSN patterns');
         console.log('- Supported SSN Patterns: XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX, XXX XXXXXX');
-        console.log('- Smart Detection: Scans first 10 rows, requires 70% pattern match');
         console.log('- Visual Indicators: Green highlighting for data-detected fields');
-        console.log('- Detection Method Display: Shows "(header)", "(data)", or "(header+data)"');
-        console.log('- Maintains all existing functionality: Open Enrollment, abbreviation expansion, fuzzy matching');
-        console.log('- Simplified inclusion logic: Exclude only if ALL costs > $0 AND ALL dates NOT in range');
-        console.log('- Keyboard shortcuts: Ctrl+Alt+1 (analyze), Ctrl+Alt+2 (process), Ctrl+Alt+3 (open enrollment)');
+        console.log('- Multi-sheet Open Enrollment with healthcare abbreviation expansion');
+        console.log('- Simplified inclusion logic and keyboard shortcuts');
         console.log('=== READY FOR USE ===');
     </script>
 </body>
