@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enrollment Data Processor v3.7 OPEN ENROLLMENT UPDATE</title>
+    <title>Enrollment Data Processor v3.7 CONCEPT CHANGE</title>
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
     <style>
         body {
@@ -297,7 +297,7 @@
             <span class="logo-united">UNITED</span>
             <span class="logo-enroll">ENROLL</span>
         </div>
-        <h1>Enrollment Data Processor v3.6</h1>
+        <h1>Enrollment Data Processor v3.7</h1>
         
         <div class="date-input-section">
             <label for="policyDate">Policy Change Date:</label>
@@ -334,15 +334,14 @@
             </div>
             
             <div class="zero-null-info">
-                <strong>Enhanced Logic v3.6:</strong> 
+                <strong>Enhanced Logic v3.7:</strong> 
                 <ul style="margin: 5px 0; padding-left: 20px;">
                     <li><strong>Single Sheet:</strong> EXCLUDE SSNs where ALL rows have cost > $0 AND ALL date fields are NOT in the target date range</li>
-                    <li><strong>Open Enrollment:</strong> Copy ONE unique row per SSN from Sheet 1 EXCEPT when SSN exists in BOTH sheets AND fuzzy matching finds policy matches</li>
-                    <li>Row selection priority: Prefer rows with cost field values (< $5000), fallback to any row if no costs available</li>
-                    <li>Multiple rows per SSN consolidated into ONE row with combined data (single sheet only)</li>
-                    <li>Dollar amounts summed across all rows per SSN (single sheet only)</li>
-                    <li>Plan/coverage fields show costs as "Plan Name ($Cost) | Plan Name ($Cost)" (single sheet only)</li>
-                    <li><strong>ENHANCED:</strong> SSN detection now scans actual data patterns (XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX)</li>
+                    <li><strong>Open Enrollment v3.7:</strong> Copy ALL rows from Sheet 1 where SSN exists in BOTH sheets OR fuzzy matching finds policy matches</li>
+                    <li>Multiple rows per SSN copied exactly as-is (no consolidation in Open Enrollment mode)</li>
+                    <li>Single Sheet: Dollar amounts summed across all rows per SSN with consolidation</li>
+                    <li>Open Enrollment: Rows copied exactly - no data consolidation or summation</li>
+                    <li><strong>ENHANCED:</strong> SSN detection scans actual data patterns (XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX)</li>
                 </ul>
             </div>
         </div>
@@ -366,7 +365,7 @@
                 <div id="sheet2SSNFields"></div>
             </div>
             <div class="open-enrollment-info">
-                <strong>New Open Enrollment Process v3.6:</strong> Copies ONE unique row per SSN from Sheet 1 EXCEPT when SSN exists in BOTH sheets AND fuzzy matching finds policy matches. Prefers rows with cost field values (< $5000), fallback to any row if no costs. Creates a clean, deduplicated version of Sheet 1.
+                <strong>Open Enrollment Process v3.7:</strong> Copies ALL rows from Sheet 1 where SSN exists in BOTH sheets OR fuzzy matching finds policy matches between sheets. No data consolidation - rows copied exactly as they appear in Sheet 1.
             </div>
         </div>
         
@@ -380,7 +379,7 @@
     </div>
 
     <script>
-        console.log('=== SCRIPT LOADING - VERSION 3.6 OPEN ENROLLMENT UPDATE ===');
+        console.log('=== SCRIPT LOADING - VERSION 3.7 CONCEPT CHANGE ===');
         
         let detectedHeaders = [];
         let currentSheetData = [];
@@ -396,7 +395,7 @@
         let selectedSheet1SSN = '';
         let selectedSheet2SSN = '';
         
-        // Healthcare abbreviations mapping (preserved from v3.5)
+        // PRESERVED - Healthcare abbreviations mapping (unchanged from v3.5)
         const healthcareAbbreviations = {
             'EE': 'Employee Only',
             'ES': 'Employee + Spouse', 
@@ -433,7 +432,7 @@
         };
 
         Office.onReady((info) => {
-            console.log('=== OFFICE.JS READY - VERSION 3.6 OPEN ENROLLMENT UPDATE ===');
+            console.log('=== OFFICE.JS READY - VERSION 3.7 CONCEPT CHANGE ===');
             console.log('Host:', info.host);
             console.log('Platform:', info.platform);
             
@@ -448,13 +447,13 @@
             
             if (debugMode) {
                 document.getElementById('debugInfo').style.display = 'block';
-                debugLog('Debug mode enabled - Version 3.6 OPEN ENROLLMENT UPDATE');
+                debugLog('Debug mode enabled - Version 3.7 CONCEPT CHANGE');
             }
             
             setTimeout(setupEventListeners, 100);
         });
 
-        // PRESERVED FUNCTIONALITY - SSN Pattern Detection (unchanged from v3.5)
+        // PRESERVED FUNCTIONALITY - All SSN detection and field analysis functions (unchanged from v3.5)
         function isSSNPattern(value) {
             if (!value) return false;
             
@@ -484,7 +483,6 @@
             return false;
         }
 
-        // PRESERVED FUNCTIONALITY - Column SSN Scanning (unchanged from v3.5)
         function scanColumnForSSNPatterns(data, columnIndex, headerName) {
             let ssnCount = 0;
             let totalNonEmptyValues = 0;
@@ -525,13 +523,12 @@
             };
         }
 
-        // PRESERVED FUNCTIONALITY - Field Detection (unchanged from v3.5)
         function detectFields(headers, data = null) {
             const ssnFields = [];
             const dateFields = [];
             const costFields = [];
             
-            debugLog(`=== ENHANCED FIELD DETECTION v3.6 ===`);
+            debugLog(`=== ENHANCED FIELD DETECTION v3.7 ===`);
             debugLog(`Detecting fields in ${headers.length} headers with ${data ? 'DATA SCANNING' : 'HEADER-ONLY'} analysis`);
             
             headers.forEach((header, index) => {
@@ -572,7 +569,7 @@
                             byHeader: isSSNByHeader,
                             byData: isSSNByData
                         });
-                        debugLog(`  ✓ SSN field found: "${header}" (${detectionMethod})`);
+                        debugLog(`  âœ" SSN field found: "${header}" (${detectionMethod})`);
                     }
                     
                     if (headerLower.includes('date') || 
@@ -584,7 +581,7 @@
                         headerLower.includes('created') ||
                         headerLower.includes('modified')) {
                         dateFields.push({ name: header, index: index });
-                        debugLog(`  ✓ Date field found: "${header}"`);
+                        debugLog(`  âœ" Date field found: "${header}"`);
                     }
                     
                     if (headerLower.includes('cost') || 
@@ -596,7 +593,7 @@
                         headerLower.includes('total') ||
                         headerLower.includes('charge')) {
                         costFields.push({ name: header, index: index });
-                        debugLog(`  ✓ Cost field found: "${header}"`);
+                        debugLog(`  âœ" Cost field found: "${header}"`);
                     }
                 }
             });
@@ -607,7 +604,7 @@
             return { ssnFields, dateFields, costFields };
         }
 
-        // PRESERVED FUNCTIONALITY - Sheet Data Loading (unchanged from v3.5)
+        // PRESERVED FUNCTIONALITY - All sheet loading and analysis functions (unchanged from v3.5)
         async function loadSheetData(sheet, context) {
             try {
                 const usedRange = sheet.getUsedRange();
@@ -645,7 +642,6 @@
             }
         }
 
-        // PRESERVED FUNCTIONALITY - SSN Field Analysis (unchanged from v3.5)
         function analyzeSheetForSSNFields(sheetData) {
             if (!sheetData.hasData || !sheetData.headers) {
                 return {
@@ -674,10 +670,9 @@
             };
         }
 
-        // PRESERVED FUNCTIONALITY - Worksheet Count Check (unchanged from v3.5)
         async function checkWorksheetCount() {
             try {
-                debugLog('=== CHECKING ALL WORKSHEETS v3.6 ===');
+                debugLog('=== CHECKING ALL WORKSHEETS v3.7 ===');
                 await Excel.run(async (context) => {
                     const worksheets = context.workbook.worksheets;
                     worksheets.load("count, items/name, items/position");
@@ -739,13 +734,13 @@
             }
         }
 
-        // PRESERVED FUNCTIONALITY - Button State Management (DRY from v3.5)
+        // PRESERVED FUNCTIONALITY - All UI and event handling functions (unchanged from v3.5)
         function updateButtonStates() {
             const processBtn = document.getElementById('processBtn');
             const openEnrollmentBtn = document.getElementById('openEnrollmentBtn');
             const auditSection = document.getElementById('auditSection');
             
-            debugLog(`=== UPDATING BUTTON STATES v3.6 ===`);
+            debugLog(`=== UPDATING BUTTON STATES v3.7 ===`);
             debugLog(`Selected SSN fields: ${selectedSSNFields.length}`);
             debugLog(`Has SSN in both sheets: ${hasSSNInBothSheets}`);
             debugLog(`Sheet1 SSN: "${selectedSheet1SSN}"`);
@@ -760,11 +755,11 @@
                     if (selectedSheet1SSN && selectedSheet2SSN) {
                         openEnrollmentBtn.disabled = false;
                         showStatus(`Ready for Open Enrollment processing with selected SSN fields`, 'success');
-                        debugLog(`✓ Open Enrollment button ENABLED`);
+                        debugLog(`âœ" Open Enrollment button ENABLED`);
                     } else {
                         openEnrollmentBtn.disabled = true;
                         showStatus('Please select SSN fields from both sheets below', 'info');
-                        debugLog(`✗ Open Enrollment button DISABLED - missing sheet SSN selections`);
+                        debugLog(`âœ— Open Enrollment button DISABLED - missing sheet SSN selections`);
                     }
                 } else {
                     processBtn.style.display = 'block';
@@ -772,24 +767,23 @@
                     openEnrollmentBtn.style.display = 'none';
                     auditSection.style.display = 'none';
                     showStatus(`Ready to process with SSN field: ${selectedSSNFields[0]}`, 'success');
-                    debugLog(`✓ Process button ENABLED`);
+                    debugLog(`âœ" Process button ENABLED`);
                 }
             } else if (selectedSSNFields.length === 0) {
                 processBtn.disabled = true;
                 openEnrollmentBtn.disabled = true;
                 auditSection.style.display = 'none';
                 showStatus('Please select exactly one SSN field to continue', 'error');
-                debugLog(`✗ No SSN field selected`);
+                debugLog(`âœ— No SSN field selected`);
             } else {
                 processBtn.disabled = true;
                 openEnrollmentBtn.disabled = true;
                 auditSection.style.display = 'none';
                 showStatus('Please select only one SSN field. Multiple SSN fields are not supported.', 'error');
-                debugLog(`✗ Multiple SSN fields selected`);
+                debugLog(`âœ— Multiple SSN fields selected`);
             }
         }
 
-        // PRESERVED FUNCTIONALITY - UI Creation Functions (unchanged from v3.5)
         function createTwoSheetSSNSelections(sheetAnalyses) {
             if (sheetAnalyses.length < 2) return;
             
@@ -868,7 +862,6 @@
             });
         }
 
-        // PRESERVED FUNCTIONALITY - Event Listeners (unchanged from v3.5)
         function setupEventListeners() {
             const analyzeBtn = document.getElementById('analyzeBtn');
             const processBtn = document.getElementById('processBtn');
@@ -896,7 +889,7 @@
             }
         }
 
-        // PRESERVED FUNCTIONALITY - Utility Functions (unchanged from v3.5)
+        // PRESERVED FUNCTIONALITY - All utility functions (unchanged from v3.5)
         function debugLog(message) {
             const timestamp = new Date().toLocaleTimeString();
             console.log(`[${timestamp}] ${message}`);
@@ -999,10 +992,9 @@
             updateButtonStates();
         }
 
-        // PRESERVED FUNCTIONALITY - Analysis Function (unchanged from v3.5)
         async function analyzeCurrentSheet() {
             try {
-                debugLog('=== STARTING ANALYSIS v3.6 OPEN ENROLLMENT UPDATE ===');
+                debugLog('=== STARTING ANALYSIS v3.7 CONCEPT CHANGE ===');
                 
                 const dateInput = document.getElementById('policyDate');
                 if (!dateInput.value) {
@@ -1068,7 +1060,7 @@
                     updateProgress(100);
                     setTimeout(() => updateProgress(0), 1000);
                     
-                    debugLog(`=== ANALYSIS COMPLETE v3.6 OPEN ENROLLMENT UPDATE ===`);
+                    debugLog(`=== ANALYSIS COMPLETE v3.7 CONCEPT CHANGE ===`);
                     debugLog(`Multi-sheet mode: ${hasSSNInBothSheets}`);
                 });
                 
@@ -1080,10 +1072,10 @@
             }
         }
 
-        // NEW v3.6 FUNCTIONALITY - Open Enrollment Process
+        // NEW v3.7 FUNCTIONALITY - Updated Open Enrollment Process
         async function runOpenEnrollmentProcess() {
             try {
-                debugLog('=== STARTING OPEN ENROLLMENT PROCESS v3.6 ===');
+                debugLog('=== STARTING OPEN ENROLLMENT PROCESS v3.7 CONCEPT CHANGE ===');
                 showStatus('Running Open Enrollment processing...', 'info');
                 updateProgress(10);
                 
@@ -1109,8 +1101,8 @@
                     
                     updateProgress(50);
                     
-                    // NEW v3.6 LOGIC: Get unique SSNs except those with matches
-                    const openEnrollmentResults = processOpenEnrollmentData(
+                    // NEW v3.7 LOGIC: Process with concept change
+                    const openEnrollmentResults = processOpenEnrollmentDataV37(
                         sheet1Data.data, sheet1Data.headers, selectedSheet1SSN,
                         sheet2Data.data, sheet2Data.headers, selectedSheet2SSN
                     );
@@ -1118,10 +1110,10 @@
                     updateProgress(75);
                     
                     // Create Open Enrollment Report sheet
-                    await createOpenEnrollmentReportSheet(context, openEnrollmentResults, sheet1Data.headers, sheet2Data.headers);
+                    await createOpenEnrollmentReportSheetV37(context, openEnrollmentResults, sheet1Data.headers, sheet2Data.headers);
                     
                     updateProgress(100);
-                    showStatus(`Open Enrollment processing completed! Created ${openEnrollmentResults.totalRowsCopied} unique SSN records from ${allSheetsData[0].name} (${openEnrollmentResults.excludedSSNs} SSNs excluded due to policy matches).`, 'success');
+                    showStatus(`Open Enrollment processing completed! Copied ${openEnrollmentResults.totalRowsCopied} rows from ${allSheetsData[0].name}.`, 'success');
                     setTimeout(() => updateProgress(0), 1000);
                 });
                 
@@ -1133,16 +1125,13 @@
             }
         }
 
-        // NEW v3.6 FUNCTIONALITY - Process Open Enrollment Data (Sheet 1 Only with Unique SSN Selection)
-        function processOpenEnrollmentData(sheet1Data, sheet1Headers, sheet1SSNField, sheet2Data, sheet2Headers, sheet2SSNField) {
-            debugLog('=== PROCESSING OPEN ENROLLMENT DATA v3.6 - SHEET 1 UNIQUE SSNs ONLY ===');
+        // NEW v3.7 FUNCTIONALITY - Process Open Enrollment Data with Concept Change
+        function processOpenEnrollmentDataV37(sheet1Data, sheet1Headers, sheet1SSNField, sheet2Data, sheet2Headers, sheet2SSNField) {
+            debugLog('=== PROCESSING OPEN ENROLLMENT DATA v3.7 - CONCEPT CHANGE ===');
+            debugLog('New logic: Copy ALL rows from Sheet 1 where SSN exists in BOTH sheets OR fuzzy matching finds policy matches');
             
             const sheet1SSNIndex = sheet1Headers.indexOf(sheet1SSNField);
             const sheet2SSNIndex = sheet2Headers.indexOf(sheet2SSNField);
-            
-            // Get cost fields from Sheet 1 for row selection logic
-            const sheet1CostFields = detectFields(sheet1Headers).costFields;
-            debugLog(`Sheet 1 cost fields for row selection: ${sheet1CostFields.map(f => f.name).join(', ')}`);
             
             // Group data by SSN for both sheets
             const sheet1BySSN = {};
@@ -1168,143 +1157,112 @@
                 }
             }
             
-            const excludedSSNs = new Set();
             const resultRows = [];
+            const includedSSNs = new Set();
+            const ssnWithBothSheets = new Set();
+            const ssnWithPolicyMatches = new Set();
             
             debugLog(`Found ${Object.keys(sheet1BySSN).length} unique SSNs in Sheet 1`);
             debugLog(`Found ${Object.keys(sheet2BySSN).length} unique SSNs in Sheet 2`);
             
-            // Process only Sheet 1 SSNs - check each against Sheet 2 for matches
+            // Process each SSN from Sheet 1
             for (const [ssn, sheet1Rows] of Object.entries(sheet1BySSN)) {
                 const sheet2Rows = sheet2BySSN[ssn];
+                let shouldInclude = false;
+                let inclusionReason = '';
                 
-                // Only check for matches if SSN exists in BOTH sheets
+                // Condition 1: SSN exists in BOTH sheets
                 if (sheet2Rows) {
-                    let hasMatch = false;
+                    shouldInclude = true;
+                    inclusionReason = 'SSN exists in both sheets';
+                    ssnWithBothSheets.add(ssn);
+                    debugLog(`SSN ${ssn}: EXISTS IN BOTH SHEETS - INCLUDE`);
+                } else {
+                    // Condition 2: SSN NOT in Sheet 2, but check for fuzzy policy matches
+                    debugLog(`SSN ${ssn}: Not in Sheet 2, checking for policy matches...`);
                     
-                    debugLog(`Checking SSN ${ssn} for policy matches between sheets...`);
+                    // Check if any data from this SSN in Sheet 1 has policy matches with any data in Sheet 2
+                    let hasPolicyMatch = false;
                     
-                    // Use existing fuzzy matching to find policy matches
-                    for (const s2Row of sheet2Rows) {
-                        sheet2Headers.forEach((header, index) => {
-                            const sheet2Value = s2Row[index];
+                    // Convert Sheet 1 rows to objects for easier processing
+                    const sheet1Objects = sheet1Rows.map(row => {
+                        const obj = {};
+                        sheet1Headers.forEach((header, index) => {
+                            obj[header] = row[index];
+                        });
+                        return obj;
+                    });
+                    
+                    // Check all Sheet 2 data for policy matches
+                    outerLoop: for (let i = 1; i < sheet2Data.length; i++) {
+                        const sheet2Row = sheet2Data[i];
+                        
+                        // Check each non-SSN, non-date field in Sheet 2 row
+                        for (let fieldIndex = 0; fieldIndex < sheet2Headers.length; fieldIndex++) {
+                            const header = sheet2Headers[fieldIndex];
+                            const sheet2Value = sheet2Row[fieldIndex];
+                            
                             if (sheet2Value && header !== sheet2SSNField && !isDateField(header)) {
-                                // Use existing findMatchingCoverage function
-                                const match = findMatchingCoverage(sheet2Value, sheet1Rows.map(row => {
-                                    const obj = {};
-                                    sheet1Headers.forEach((h, i) => obj[h] = row[i]);
-                                    return obj;
-                                }), sheet1Headers);
+                                // Use existing fuzzy matching to find policy matches
+                                const match = findMatchingCoverage(sheet2Value, sheet1Objects, sheet1Headers);
                                 
                                 if (match) {
-                                    hasMatch = true;
-                                    debugLog(`  SSN ${ssn}: Found policy match "${sheet2Value}" -> "${match.value}" - EXCLUDING from report`);
-                                    return; // Break out of loops
+                                    hasPolicyMatch = true;
+                                    debugLog(`  SSN ${ssn}: Found policy match "${sheet2Value}" -> "${match.value}" - INCLUDE`);
+                                    break outerLoop;
                                 }
                             }
-                        });
-                        if (hasMatch) break;
+                        }
                     }
                     
-                    if (hasMatch) {
-                        excludedSSNs.add(ssn);
-                        debugLog(`  SSN ${ssn}: EXCLUDED due to policy match`);
-                        continue;
+                    if (hasPolicyMatch) {
+                        shouldInclude = true;
+                        inclusionReason = 'fuzzy policy match found';
+                        ssnWithPolicyMatches.add(ssn);
+                    } else {
+                        debugLog(`  SSN ${ssn}: No policy matches found - EXCLUDE`);
                     }
                 }
                 
-                // Include this SSN - but select only ONE row using cost field preference
-                debugLog(`  SSN ${ssn}: INCLUDED - selecting best row from ${sheet1Rows.length} available rows`);
-                const selectedRow = selectBestRowForSSN(sheet1Rows, sheet1Headers, sheet1CostFields, ssn);
-                
-                resultRows.push({
-                    data: selectedRow,
-                    headers: sheet1Headers,
-                    source: allSheetsData[0].name,
-                    ssn: ssn
-                });
+                if (shouldInclude) {
+                    includedSSNs.add(ssn);
+                    
+                    // Copy ALL rows for this SSN exactly as they are (no consolidation)
+                    sheet1Rows.forEach(row => {
+                        resultRows.push({
+                            data: row,
+                            headers: sheet1Headers,
+                            source: allSheetsData[0].name,
+                            ssn: ssn,
+                            inclusionReason: inclusionReason
+                        });
+                    });
+                    
+                    debugLog(`  SSN ${ssn}: INCLUDED (${inclusionReason}) - copied ${sheet1Rows.length} rows`);
+                }
             }
             
-            debugLog(`=== OPEN ENROLLMENT RESULTS (UNIQUE SSNs FROM SHEET 1) ===`);
+            debugLog(`=== OPEN ENROLLMENT RESULTS v3.7 ===`);
             debugLog(`Total SSNs in Sheet 1: ${Object.keys(sheet1BySSN).length}`);
-            debugLog(`Excluded SSNs (with matches): ${excludedSSNs.size}`);
-            debugLog(`Included SSNs: ${Object.keys(sheet1BySSN).length - excludedSSNs.size}`);
-            debugLog(`Total unique rows in report: ${resultRows.length}`);
+            debugLog(`SSNs existing in both sheets: ${ssnWithBothSheets.size}`);
+            debugLog(`SSNs with policy matches: ${ssnWithPolicyMatches.size}`);
+            debugLog(`Total included SSNs: ${includedSSNs.size}`);
+            debugLog(`Total rows copied from Sheet 1: ${resultRows.length}`);
             
             return {
                 rows: resultRows,
                 totalSheet1SSNs: Object.keys(sheet1BySSN).length,
-                excludedSSNs: excludedSSNs.size,
-                includedSSNs: Object.keys(sheet1BySSN).length - excludedSSNs.size,
+                includedSSNs: includedSSNs.size,
+                ssnWithBothSheets: ssnWithBothSheets.size,
+                ssnWithPolicyMatches: ssnWithPolicyMatches.size,
                 totalRowsCopied: resultRows.length
             };
         }
 
-        // NEW v3.6 FUNCTIONALITY - Select Best Row for SSN based on Cost Field Values
-        function selectBestRowForSSN(rows, headers, costFields, ssn) {
-            debugLog(`  Selecting best row for SSN ${ssn} from ${rows.length} rows...`);
-            
-            if (rows.length === 1) {
-                debugLog(`    Only one row available - selecting it`);
-                return rows[0];
-            }
-            
-            // First priority: Find rows with cost values (decimal values, typically < $5000)
-            const rowsWithCosts = [];
-            
-            for (const row of rows) {
-                let hasCostValue = false;
-                let totalCost = 0;
-                
-                for (const costField of costFields) {
-                    const costIndex = headers.indexOf(costField.name);
-                    if (costIndex !== -1) {
-                        const costValue = row[costIndex];
-                        if (costValue !== null && costValue !== undefined && costValue !== '' && costValue !== 0) {
-                            const numericCost = parseFloat(costValue);
-                            if (!isNaN(numericCost) && numericCost > 0) {
-                                hasCostValue = true;
-                                totalCost += numericCost;
-                                debugLog(`    Row has cost value: ${costField.name} = ${numericCost}`);
-                            }
-                        }
-                    }
-                }
-                
-                if (hasCostValue) {
-                    rowsWithCosts.push({
-                        row: row,
-                        totalCost: totalCost
-                    });
-                }
-            }
-            
-            if (rowsWithCosts.length > 0) {
-                // Select the row with cost values, preferring reasonable amounts (< $5000)
-                const reasonableCostRows = rowsWithCosts.filter(r => r.totalCost < 5000);
-                
-                if (reasonableCostRows.length > 0) {
-                    // Pick the first reasonable cost row
-                    const selectedRow = reasonableCostRows[0];
-                    debugLog(`    Selected row with reasonable cost: ${selectedRow.totalCost.toFixed(2)}`);
-                    return selectedRow.row;
-                } else {
-                    // No reasonable costs, pick the first row with any cost
-                    const selectedRow = rowsWithCosts[0];
-                    debugLog(`    Selected row with cost (higher than $5000): ${selectedRow.totalCost.toFixed(2)}`);
-                    return selectedRow.row;
-                }
-            } else {
-                // No cost values found in any row - select any row (first one)
-                debugLog(`    No cost values found - selecting first available row`);
-                return rows[0];
-            }
-        }
-
-        // NEW v3.6 FUNCTIONALITY - Create Open Enrollment Report Sheet (Sheet 1 Only)
-        async function createOpenEnrollmentReportSheet(context, results, sheet1Headers, sheet2Headers) {
+        // NEW v3.7 FUNCTIONALITY - Create Open Enrollment Report Sheet
+        async function createOpenEnrollmentReportSheetV37(context, results, sheet1Headers, sheet2Headers) {
             try {
-                debugLog('Creating Open Enrollment Report sheet (Sheet 1 data only)...');
+                debugLog('Creating Open Enrollment Report sheet v3.7...');
                 
                 // Delete existing sheet if it exists
                 try {
@@ -1320,13 +1278,12 @@
                 
                 if (results.rows.length === 0) {
                     const noDataRange = reportSheet.getRange("A1");
-                    noDataRange.values = [["No unique SSN data to display - all SSNs from Sheet 1 had policy matches with Sheet 2"]];
+                    noDataRange.values = [["No data to display - no SSNs met the inclusion criteria"]];
                     return;
                 }
                 
-                // Use Sheet 1 headers since we're only copying from Sheet 1
-                const reportHeaders = [...sheet1Headers];
-                reportHeaders.unshift('SSN_PROCESSED'); // Add SSN column at the beginning for reference
+                // Use Sheet 1 headers and add metadata columns
+                const reportHeaders = ['INCLUSION_REASON', 'SOURCE_SHEET', ...sheet1Headers];
                 
                 // Write headers
                 const headerRange = reportSheet.getRange(`A1:${getExcelColumnName(reportHeaders.length)}1`);
@@ -1336,15 +1293,16 @@
                 headerRange.format.font.color = "white";
                 await context.sync();
                 
-                // Write data rows - ONE unique row per SSN, no consolidation, exact copy from Sheet 1
+                // Write data rows - copy exactly as they are from Sheet 1
                 let currentRow = 2;
                 for (const result of results.rows) {
                     const rowData = new Array(reportHeaders.length).fill('');
                     
-                    // Fill SSN for reference
-                    rowData[0] = result.ssn;
+                    // Fill metadata
+                    rowData[0] = result.inclusionReason;
+                    rowData[1] = result.source;
                     
-                    // Fill data from selected Sheet 1 row (skip SSN column since it's now first)
+                    // Fill data from Sheet 1 row exactly as-is
                     result.data.forEach((cellValue, index) => {
                         let value = cellValue;
                         
@@ -1358,14 +1316,18 @@
                             value = '';
                         }
                         
-                        rowData[index + 1] = value; // +1 because SSN_PROCESSED is now first column
+                        rowData[index + 2] = value; // +2 because of metadata columns
                     });
                     
                     const rowRange = reportSheet.getRange(`A${currentRow}:${getExcelColumnName(reportHeaders.length)}${currentRow}`);
                     rowRange.values = [rowData];
                     
-                    // Light green background to indicate filtered Sheet 1 data (one row per SSN)
-                    rowRange.format.fill.color = "#e8f5e8";
+                    // Color code by inclusion reason
+                    if (result.inclusionReason === 'SSN exists in both sheets') {
+                        rowRange.format.fill.color = "#e3f2fd"; // Light blue
+                    } else if (result.inclusionReason === 'fuzzy policy match found') {
+                        rowRange.format.fill.color = "#fff3e0"; // Light orange
+                    }
                     
                     currentRow++;
                     
@@ -1379,7 +1341,7 @@
                 // Format date columns properly
                 sheet1Headers.forEach((header, index) => {
                     if (isDateField(header)) {
-                        const columnRange = reportSheet.getRange(`${getExcelColumnName(index + 2)}:${getExcelColumnName(index + 2)}`);
+                        const columnRange = reportSheet.getRange(`${getExcelColumnName(index + 3)}:${getExcelColumnName(index + 3)}`);
                         columnRange.numberFormat = [["mm/dd/yyyy"]];
                     }
                 });
@@ -1393,17 +1355,17 @@
                 // Add summary
                 const summaryRow = currentRow + 2;
                 const summaryData = [
-                    ['OPEN ENROLLMENT SUMMARY v3.6 (SHEET 1 FILTERED)', ''],
+                    ['OPEN ENROLLMENT SUMMARY v3.7 (CONCEPT CHANGE)', ''],
                     ['Source Sheet', allSheetsData[0].name],
                     ['Reference Sheet', allSheetsData[1].name],
                     ['Total SSNs in Source Sheet', results.totalSheet1SSNs],
-                    ['SSNs with Policy Matches (Excluded)', results.excludedSSNs],
-                    ['SSNs Included in Report', results.includedSSNs],
-                    ['Total Rows Copied from Sheet 1', `${results.totalRowsCopied} (1 unique row per included SSN)`],
-                    ['Processing Logic', `Copy ONE unique row per SSN from ${allSheetsData[0].name} EXCEPT when SSN exists in ${allSheetsData[1].name} AND fuzzy matching finds policy matches`],
-                    ['Row Selection Priority', 'Prefer rows with cost field values (< $5000), fallback to any row if no costs available'],
+                    ['SSNs in Both Sheets', results.ssnWithBothSheets],
+                    ['SSNs with Policy Matches Only', results.ssnWithPolicyMatches],
+                    ['Total Included SSNs', results.includedSSNs],
+                    ['Total Rows Copied from Sheet 1', results.totalRowsCopied],
+                    ['Processing Logic v3.7', 'Copy ALL rows from Sheet 1 where: (1) SSN exists in BOTH sheets OR (2) fuzzy matching finds policy matches'],
+                    ['No Data Consolidation', 'All rows copied exactly as they appear in Sheet 1'],
                     ['Fuzzy Matching Used', 'Healthcare abbreviation expansion with similarity threshold'],
-                    ['Result', `Filtered version of ${allSheetsData[0].name} with ONE row per unique SSN, excluding matching policy holders`],
                     ['Report Generated', new Date().toLocaleString()]
                 ];
                 
@@ -1421,7 +1383,7 @@
                 reportSheet.activate();
                 await context.sync();
                 
-                debugLog('Open Enrollment Report sheet created successfully (Sheet 1 unique SSNs only)');
+                debugLog('Open Enrollment Report sheet created successfully v3.7');
                 
             } catch (error) {
                 debugLog('Error creating Open Enrollment Report sheet: ' + error.message);
@@ -1429,7 +1391,7 @@
             }
         }
 
-        // PRESERVED FUNCTIONALITY - Fuzzy Matching Functions (unchanged from v3.5)
+        // PRESERVED FUNCTIONALITY - All fuzzy matching functions (unchanged from v3.5)
         function fuzzyMatch(str1, str2, threshold = 0.6) {
             if (!str1 || !str2) return false;
             
@@ -1516,7 +1478,7 @@
             return null;
         }
 
-        // PRESERVED FUNCTIONALITY - All remaining utility functions (unchanged from v3.5)
+        // PRESERVED FUNCTIONALITY - All remaining utility and processing functions (unchanged from v3.5)
         function parseExcelDate(value) {
             if (!value) return null;
             
@@ -1697,7 +1659,7 @@
                    headerLower.includes('modified');
         }
 
-        // PRESERVED FUNCTIONALITY - Single Sheet Processing (unchanged from v3.5)
+        // PRESERVED FUNCTIONALITY - Single Sheet Processing Functions (unchanged from v3.5)
         function shouldIncludeSSN(ssnRows, dateFields, costFields, targetDate, headers) {
             let hasNonZeroCost = false;
             let hasDateInRange = false;
@@ -1833,7 +1795,7 @@
                 throw new Error(`SSN field "${ssnField}" not found in headers`);
             }
             
-            debugLog(`=== PROCESSING VERSION 3.6 - SINGLE SHEET MODE ===`);
+            debugLog(`=== PROCESSING VERSION 3.7 - SINGLE SHEET MODE (UNCHANGED) ===`);
             debugLog(`Processing ${data.length - 1} data rows`);
             debugLog(`Target date: ${targetDate.toLocaleDateString()}`);
             
@@ -1885,7 +1847,6 @@
             };
         }
 
-        // PRESERVED FUNCTIONALITY - Single Sheet Processing Function (unchanged from v3.5)
         async function processEnrollmentData() {
             try {
                 debugLog('Starting processEnrollmentData function...');
@@ -2029,7 +1990,7 @@
                     
                     let notes = '';
                     if (consolidatedRow._originalRowCount > 1) {
-                        notes = `Consolidated ${consolidatedRow._originalRowCount} rows using enhanced v3.6 logic. `;
+                        notes = `Consolidated ${consolidatedRow._originalRowCount} rows using enhanced v3.7 logic. `;
                         notes += 'Plan/coverage fields show individual plan costs as "Plan Name ($Cost)".';
                     } else {
                         notes = 'Single row - no consolidation needed';
@@ -2074,14 +2035,13 @@
                 
                 const summaryStartRow = currentRow + 2;
                 const summaryData = [
-                    ['PROCESSING SUMMARY v3.6 OPEN ENROLLMENT UPDATE', ''],
+                    ['PROCESSING SUMMARY v3.7 CONCEPT CHANGE', ''],
                     ['Total Unique SSNs:', Object.keys(ssnGroups).length],
                     ['Total Original Rows:', Object.values(ssnGroups).reduce((sum, rows) => sum + rows.length, 0)],
                     ['Total Consolidated Rows:', Object.keys(ssnGroups).length],
-                    ['Logic Version:', 'Enhanced v3.6 - Open Enrollment mode with fuzzy matching'],
-                    ['SSN Detection:', 'Header analysis + data pattern scanning across ALL worksheets'],
-                    ['Single Sheet Mode:', 'Data consolidation with enhanced filtering logic'],
-                    ['Open Enrollment Mode:', 'Copy unique SSN rows except those with policy matches'],
+                    ['Logic Version:', 'Enhanced v3.7 - Concept change for Open Enrollment mode'],
+                    ['Single Sheet Mode:', 'Data consolidation with enhanced filtering logic (UNCHANGED)'],
+                    ['Open Enrollment Mode:', 'Copy ALL rows from Sheet 1 where SSN in both sheets OR policy matches'],
                     ['Processing Date:', new Date().toLocaleDateString()],
                     ['Processing Time:', new Date().toLocaleTimeString()]
                 ];
@@ -2139,7 +2099,7 @@
                 });
                 
                 const summaryData = [
-                    ["Enrollment Data Processing Summary v3.6 OPEN ENROLLMENT UPDATE", ""],
+                    ["Enrollment Data Processing Summary v3.7 CONCEPT CHANGE", ""],
                     ["", ""],
                     ["BASIC INFORMATION", ""],
                     ["Policy Change Date", policyChangeDate.toLocaleDateString()],
@@ -2160,19 +2120,11 @@
                     ["Total Dollar Amount", totalDollarAmount],
                     ["Average per SSN", totalSSNs > 0 ? (totalDollarAmount / totalSSNs) : 0],
                     ["", ""],
-                    ["ALL-SHEET SSN DETECTION v3.6", ""],
-                    ["Detection Method", "Header analysis + data pattern scanning across ALL worksheets"],
-                    ["Supported Patterns", "XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX, XXX XXXXXX"],
-                    ["Scan Depth", "First 10 rows of data per column"],
-                    ["Threshold", "70% of non-empty values must match SSN patterns"],
-                    ["Sheet Selection", "Automatically selects first two sheets with SSN data by position order"],
-                    ["Multi-Sheet Logic", "Scans all worksheets, not just first two by index"],
-                    ["", ""],
-                    ["PROCESSING LOGIC v3.6", ""],
-                    ["Single Sheet Mode", "EXCLUDE SSNs where ALL rows have cost > $0 AND ALL date fields NOT in target range"],
-                    ["Open Enrollment Mode", "Copy ALL unique SSN rows from Sheet 1 EXCEPT when SSN exists in both sheets AND fuzzy matching finds policy matches"],
-                    ["Consolidation", "Single sheet: consolidate multiple rows per SSN with cost summation"],
-                    ["No Consolidation", "Open enrollment: copy rows exactly as they are, no data consolidation"],
+                    ["PROCESSING LOGIC v3.7", ""],
+                    ["Single Sheet Mode", "EXCLUDE SSNs where ALL rows have cost > $0 AND ALL date fields NOT in target range (UNCHANGED)"],
+                    ["Open Enrollment Mode v3.7", "Copy ALL rows from Sheet 1 where SSN exists in BOTH sheets OR fuzzy matching finds policy matches"],
+                    ["Single Sheet Consolidation", "Multiple rows per SSN consolidated with cost summation"],
+                    ["Open Enrollment Copy", "ALL rows copied exactly as-is, no consolidation"],
                     ["Healthcare Matching", "Uses fuzzy matching with healthcare abbreviation expansion"],
                     ["Date Processing", "Maintains proper Excel date formatting"],
                     ["", ""],
@@ -2180,7 +2132,7 @@
                     ["Processing Date", new Date().toLocaleDateString()],
                     ["Processing Time", new Date().toLocaleTimeString()],
                     ["Debug Mode", debugMode ? "Enabled" : "Disabled"],
-                    ["Version", "3.6 OPEN ENROLLMENT UPDATE - Dual processing modes with preserved single-sheet functionality"]
+                    ["Version", "3.7 CONCEPT CHANGE - Open Enrollment copies ALL matching rows from Sheet 1"]
                 ];
                 
                 for (let i = 0; i < summaryData.length; i++) {
@@ -2195,7 +2147,7 @@
                         rowRange.format.fill.color = "#0078d4";
                         rowRange.format.font.color = "white";
                         rowRange.format.horizontalAlignment = "Center";
-                    } else if (content.includes("INFORMATION") || content.includes("RESULTS") || content.includes("SUMMARY") || content.includes("LOGIC") || content.includes("METADATA") || content.includes("DETECTION")) {
+                    } else if (content.includes("INFORMATION") || content.includes("RESULTS") || content.includes("SUMMARY") || content.includes("LOGIC") || content.includes("METADATA")) {
                         rowRange.format.font.bold = true;
                         rowRange.format.fill.color = "#E3F2FD";
                         rowRange.format.font.color = "#1976D2";
@@ -2248,14 +2200,12 @@
             }
         });
 
-        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.6 OPEN ENROLLMENT UPDATE ===');
-        console.log('New v3.6 Features:');
-        console.log('- OPEN ENROLLMENT MODE: Copy ONE unique row per SSN from Sheet 1, excluding those with fuzzy policy matches in Sheet 2');
-        console.log('- ROW SELECTION PRIORITY: Prefers rows with cost field values (< $5000), fallback to any row if no costs');
-        console.log('- NO DATA CONSOLIDATION: Open enrollment copies rows exactly as they are');
-        console.log('- DUAL PROCESSING MODES: Single sheet (with consolidation) vs Open enrollment (no consolidation)');
-        console.log('- PRESERVED FUZZY MATCHING: Uses existing healthcare abbreviation expansion and fuzzy matching');
-        console.log('- SOURCE TRACKING: Open enrollment report shows which sheet each row came from');
+        console.log('=== SCRIPT LOADED COMPLETELY - VERSION 3.7 CONCEPT CHANGE ===');
+        console.log('Major Change in v3.7:');
+        console.log('- OPEN ENROLLMENT CONCEPT CHANGE: Copy ALL rows from Sheet 1 where SSN exists in BOTH sheets OR fuzzy matching finds policy matches');
+        console.log('- NO CONSOLIDATION in Open Enrollment: All rows copied exactly as they appear in Sheet 1');
+        console.log('- DUAL LOGIC: Single sheet (with consolidation) vs Open Enrollment (exact copy)');
+        console.log('- PRESERVED FUZZY MATCHING: Uses existing healthcare abbreviation expansion and similarity algorithms');
         console.log('Preserved v3.5 Features:');
         console.log('- SINGLE SHEET FUNCTIONALITY: All existing single-sheet processing preserved unchanged');
         console.log('- ALL-SHEET SCANNING: Analyzes every worksheet in the workbook');
@@ -2264,8 +2214,8 @@
         console.log('- Supported SSN Patterns: XXX-XX-XXXX, XXXXXXXXX, XXX XX XXXX, XXX XXXXXX');
         console.log('- Visual Indicators: Green highlighting for data-detected fields');
         console.log('- Healthcare abbreviation expansion with fuzzy matching');
-        console.log('- Enhanced UI with radio button validation fixes');
-        console.log('=== READY FOR USE - DUAL MODE PROCESSING ===');
+        console.log('- Radio button validation and UI state management');
+        console.log('=== READY FOR USE - CONCEPT CHANGE IMPLEMENTED ===');
     </script>
 </body>
 </html>
